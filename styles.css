@@ -1,96 +1,599 @@
 .echo-listen {
+	--echo-stage: #101118;
+	--echo-stage-fg: #ececf1;
+	--echo-ink: var(--text-normal);
+	--echo-muted: var(--text-muted);
+	--echo-line: var(--background-modifier-border);
+	--echo-soft: var(--background-secondary);
+	--echo-panel: var(--background-primary);
+	--echo-accent: var(--interactive-accent);
+	--echo-ok: var(--text-success, var(--color-green, #1a7f5a));
+	--echo-bad: var(--text-error, #d94848);
+	--echo-radius: 10px;
+	--echo-mono: var(--font-monospace);
+
 	display: flex;
 	flex-direction: column;
 	height: 100%;
 	outline: none;
+	background: var(--echo-panel);
+	color: var(--echo-ink);
 }
 
+/* —— Toolbar —— */
 .echo-toolbar {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 8px;
+	gap: 10px 14px;
 	padding: 8px 12px;
-	border-bottom: 1px solid var(--background-modifier-border);
+	border-bottom: 1px solid var(--echo-line);
+	background: color-mix(in srgb, var(--echo-soft) 65%, transparent);
+	flex: 0 0 auto;
+}
+
+.echo-toolbar-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 1px;
+	padding: 3px;
+	border-radius: 999px;
+	background: var(--echo-soft);
+	border: 1px solid var(--echo-line);
+}
+
+.echo-toolbar-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 8px 12px;
+	margin-left: auto;
+	min-width: 0;
 }
 
 .echo-btn,
 .echo-rate {
-	font-size: var(--font-ui-small);
+	appearance: none;
+	margin: 0;
+	border: none;
+	background: transparent;
+	color: var(--echo-ink);
+	font-size: 12px;
+	font-weight: 550;
+	line-height: 1;
+	padding: 7px 11px;
+	border-radius: 999px;
+	cursor: pointer;
+	transition: background 0.15s ease, color 0.15s ease, filter 0.15s ease;
+}
+
+.echo-btn:hover {
+	background: color-mix(in srgb, var(--echo-accent) 14%, transparent);
+}
+
+.echo-btn:focus-visible,
+.echo-rate:focus-visible,
+.echo-dict-input:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--echo-accent) 70%, white);
+	outline-offset: 1px;
+}
+
+.echo-btn-primary {
+	background: var(--echo-accent);
+	color: var(--text-on-accent, #fff);
+}
+
+.echo-btn-primary:hover {
+	filter: brightness(1.06);
+	background: var(--echo-accent);
+	color: var(--text-on-accent, #fff);
+}
+
+.echo-btn.is-active-mode {
+	background: color-mix(in srgb, var(--echo-accent) 22%, transparent);
+	color: var(--echo-ink);
+	font-weight: 650;
+}
+
+.echo-btn.is-hidden-ctrl {
+	display: none;
+}
+
+.echo-rate {
+	padding-right: 22px;
+	background-image: linear-gradient(45deg, transparent 50%, var(--echo-muted) 50%),
+		linear-gradient(135deg, var(--echo-muted) 50%, transparent 50%);
+	background-position:
+		calc(100% - 12px) 48%,
+		calc(100% - 8px) 48%;
+	background-size: 4px 4px;
+	background-repeat: no-repeat;
 }
 
 .echo-time {
 	font-variant-numeric: tabular-nums;
-	color: var(--text-muted);
-	margin-left: 4px;
+	font-family: var(--echo-mono);
+	font-size: 12px;
+	color: var(--echo-muted);
+	white-space: nowrap;
 }
 
 .echo-status {
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-	margin-left: auto;
+	color: var(--echo-muted);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 48ch;
 }
 
+/*
+ * 上下布局：材料区在上（高度跟媒体走），下方 = 当前句焦点 +（听写模式才出现）听写区 + 字幕列表。
+ */
 .echo-body {
 	display: flex;
+	flex-direction: column;
 	flex: 1;
 	min-height: 0;
 }
 
 .echo-player-pane {
-	flex: 3;
-	min-width: 240px;
+	flex: 0 0 auto;
+	max-height: min(40vh, 380px);
+	min-height: 0;
+	display: flex;
+	background: var(--echo-stage);
+	color: var(--echo-stage-fg);
+}
+
+.echo-player-stage {
+	flex: 1;
+	min-height: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: var(--background-secondary);
-	padding: 8px;
+	padding: 0;
+	position: relative;
+}
+
+/* 听写模式遮挡画面，防止烧录字幕泄题；声音仍由 video 播放 */
+.echo-video-veil {
+	display: none;
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 24px;
+	text-align: center;
+	background: var(--echo-stage);
+	color: var(--echo-stage-fg);
+	pointer-events: none;
+}
+
+.echo-listen.is-dictation.has-media:not(.is-audio) .echo-video-veil {
+	display: flex;
+}
+
+.echo-video-veil-title {
+	font-size: 15px;
+	font-weight: 650;
+	letter-spacing: 0.04em;
+}
+
+.echo-video-veil-detail {
+	font-size: 12.5px;
+	line-height: 1.5;
+	opacity: 0.7;
+	max-width: 36ch;
 }
 
 .echo-video {
+	display: none;
 	width: 100%;
-	max-height: 100%;
+	height: auto;
+	max-height: min(40vh, 380px);
+	object-fit: contain;
 	background: #000;
+	vertical-align: top;
+}
+
+.echo-listen.has-media:not(.is-audio) .echo-video {
+	display: block;
+}
+
+/* 竖屏视频：居中，限制宽度，避免撑满整行看起来像黑边大海 */
+.echo-listen.has-media.is-portrait .echo-player-stage {
+	padding: 8px 0;
+}
+
+.echo-listen.has-media.is-portrait .echo-video {
+	width: auto;
+	max-width: min(100%, calc(min(40vh, 380px) * 9 / 16));
+	height: min(40vh, 380px);
+	max-height: min(40vh, 380px);
+}
+
+.echo-listen.has-media.is-audio .echo-player-pane {
+	max-height: none;
+	min-height: 72px;
+}
+
+.echo-listen.has-media.is-audio .echo-player-stage {
+	flex-direction: row;
+	justify-content: flex-start;
+	align-items: center;
+	gap: 14px;
+	padding: 10px 16px;
+	width: 100%;
+}
+
+.echo-listen.has-media.is-audio .echo-video {
+	display: block;
+	flex: 1;
+	width: auto;
+	height: 36px;
+	max-height: 36px;
+	min-width: 160px;
+	object-fit: unset;
+	background: #15161c;
+	border-radius: 8px;
+}
+
+.echo-audio-card {
+	display: none;
+	align-items: center;
+	gap: 12px;
+	flex: 0 0 auto;
+}
+
+.echo-listen.has-media.is-audio .echo-audio-card {
+	display: flex;
+}
+
+.echo-audio-icon {
+	width: 40px;
+	height: 40px;
+	border-radius: 12px;
+	display: grid;
+	place-items: center;
+	background: color-mix(in srgb, var(--echo-accent) 30%, #1a1b22);
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.echo-audio-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+	max-width: 220px;
+}
+
+.echo-audio-title {
+	font-size: 13px;
+	font-weight: 650;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.echo-audio-sub {
+	font-size: 11px;
+	opacity: 0.65;
+}
+
+.echo-player-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	text-align: center;
+	padding: 28px 20px;
+	width: 100%;
+	min-height: 120px;
+}
+
+.echo-listen.has-media .echo-player-empty {
+	display: none;
+}
+
+.echo-player-empty-title {
+	font-size: 15px;
+	font-weight: 650;
+}
+
+.echo-player-empty-detail {
+	font-size: 12.5px;
+	line-height: 1.5;
+	opacity: 0.7;
+	max-width: 36ch;
+}
+
+.echo-player-empty .echo-btn {
+	margin-top: 4px;
+	background: color-mix(in srgb, white 12%, transparent);
+	color: var(--echo-stage-fg);
+	border: 1px solid color-mix(in srgb, white 18%, transparent);
+}
+
+.echo-player-empty .echo-btn-primary {
+	background: var(--echo-accent);
+	border-color: transparent;
+	color: var(--text-on-accent, #fff);
+}
+
+.echo-splitter {
+	flex: 0 0 5px;
+	cursor: row-resize;
+	background: var(--echo-line);
+	position: relative;
+	z-index: 2;
+}
+
+.echo-splitter::after {
+	content: '';
+	position: absolute;
+	inset: -3px 0;
+}
+
+.echo-splitter:hover,
+.echo-listen.is-resizing .echo-splitter {
+	background: var(--echo-accent);
+}
+
+.echo-listen.is-resizing {
+	cursor: row-resize;
+	user-select: none;
+}
+
+/* —— 工作区 —— */
+.echo-side {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--echo-panel);
+}
+
+.echo-focus {
+	flex: 0 0 auto;
+	padding: 14px 16px 12px;
+	border-bottom: 1px solid var(--echo-line);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--echo-accent) 7%, var(--echo-panel)),
+			var(--echo-panel) 80%
+		);
+}
+
+/* 听写模式：当前句只在匹配区出现一次，收起精听用的大字焦点 */
+.echo-listen.is-dictation .echo-focus {
+	display: none;
+}
+
+.echo-focus-meta {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--echo-muted);
+	margin-bottom: 8px;
+}
+
+.echo-focus-text {
+	font-size: 1.25em;
+	line-height: 1.45;
+	font-weight: 550;
+	white-space: pre-wrap;
+	min-height: 1.45em;
+}
+
+/* 听写面板：仅听写模式显示（唯一的句子展示 + 输入） */
+.echo-dict-panel {
+	display: none;
+	flex: 0 0 auto;
+	padding: 12px 14px 14px;
+	border-bottom: 1px solid var(--echo-line);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--echo-accent) 8%, var(--echo-panel)),
+			color-mix(in srgb, var(--echo-soft) 35%, var(--echo-panel)) 80%
+		);
+}
+
+.echo-listen.is-dictation .echo-dict-panel {
+	display: block;
+}
+
+.echo-dict-head {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.echo-dict-kicker {
+	flex: 0 0 auto;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--echo-accent);
+}
+
+.echo-dict-hint {
+	font-size: 12px;
+	color: var(--echo-muted);
+	line-height: 1.35;
+	min-width: 0;
+}
+
+.echo-dict-hint.is-done {
+	color: var(--echo-ok);
+	font-weight: 600;
+}
+
+.echo-dict-cells {
+	display: flex;
+	flex-wrap: wrap;
+	align-content: flex-start;
+	gap: 3px 2px;
+	min-height: 2.6em;
+	margin-bottom: 8px;
+	padding: 12px;
+	border-radius: var(--echo-radius);
+	border: 1px solid var(--echo-line);
+	background: var(--echo-panel);
+	font-family: var(--echo-mono);
+	font-size: 1.15em;
+	line-height: 1.55;
+	letter-spacing: 0.02em;
+}
+
+.echo-dict-cell {
+	display: inline-block;
+	min-width: 0.65em;
+	text-align: center;
+	border-bottom: 2px solid transparent;
+	border-radius: 2px;
+	color: var(--echo-muted);
+	transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.echo-dict-cell.is-pending {
+	color: color-mix(in srgb, var(--echo-muted) 55%, transparent);
+}
+
+.echo-dict-cell.is-current {
+	color: var(--echo-ink);
+	border-bottom-color: var(--echo-accent);
+	background: color-mix(in srgb, var(--echo-accent) 12%, transparent);
+}
+
+.echo-dict-cell.is-wrong {
+	color: var(--echo-bad);
+	border-bottom-color: var(--echo-bad);
+	background: color-mix(in srgb, var(--echo-bad) 12%, transparent);
+}
+
+.echo-dict-cell.is-matched {
+	color: var(--echo-ok);
+}
+
+.echo-dict-cell.is-visible,
+.echo-dict-cell.is-revealed {
+	color: var(--echo-ink);
+}
+
+.echo-dict-input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 10px 12px;
+	border: 1px solid var(--echo-line);
+	border-radius: var(--echo-radius);
+	background: var(--echo-panel);
+	color: var(--echo-ink);
+	font-size: 14px;
+}
+
+.echo-dict-input::placeholder {
+	color: color-mix(in srgb, var(--echo-muted) 80%, transparent);
+}
+
+.echo-dict-input:focus {
+	border-color: color-mix(in srgb, var(--echo-accent) 65%, var(--echo-line));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--echo-accent) 18%, transparent);
+	outline: none;
+}
+
+.echo-cues-wrap {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.echo-cues-label {
+	flex: 0 0 auto;
+	padding: 10px 14px 6px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--echo-muted);
 }
 
 .echo-cues {
-	flex: 2;
-	min-width: 220px;
+	flex: 1;
+	min-height: 0;
 	overflow: auto;
-	border-left: 1px solid var(--background-modifier-border);
+	padding-bottom: 8px;
 }
 
 .echo-empty {
-	padding: 16px;
-	color: var(--text-muted);
-	line-height: 1.5;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 6px;
+	min-height: 100px;
+	padding: 18px 16px;
+}
+
+.echo-empty-title {
+	font-size: 14px;
+	font-weight: 650;
+}
+
+.echo-empty-detail {
+	font-size: 12.5px;
+	line-height: 1.55;
+	color: var(--echo-muted);
+	max-width: 36ch;
 }
 
 .echo-cue {
-	display: flex;
+	display: grid;
+	grid-template-columns: 52px minmax(0, 1fr);
 	gap: 10px;
-	padding: 8px 12px;
+	padding: 9px 14px;
 	cursor: pointer;
-	border-bottom: 1px solid var(--background-modifier-border);
+	border-left: 2px solid transparent;
+	transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .echo-cue:hover {
-	background: var(--background-modifier-hover);
+	background: color-mix(in srgb, var(--echo-accent) 6%, transparent);
 }
 
 .echo-cue.is-active {
-	background: var(--background-modifier-active-hover);
+	background: color-mix(in srgb, var(--echo-accent) 12%, transparent);
+	border-left-color: var(--echo-accent);
 }
 
 .echo-cue-time {
-	flex: 0 0 48px;
 	font-variant-numeric: tabular-nums;
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	padding-top: 2px;
+	font-family: var(--echo-mono);
+	color: var(--echo-muted);
+	font-size: 11px;
+	padding-top: 3px;
 }
 
 .echo-cue-text {
 	white-space: pre-wrap;
 	line-height: 1.45;
+	font-size: 13.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.echo-btn,
+	.echo-dict-cell,
+	.echo-cue {
+		transition: none;
+	}
 }

@@ -1,0 +1,16 @@
+1
+00:00:00,000 --> 00:00:02,481
+Hello. This is a test video for Echo.
+
+2
+00:00:02,881 --> 00:00:04,946
+Click a sentence to jump and replay it.
+
+3
+00:00:05,346 --> 00:00:07,399
+Press R to hear the current line again.
+
+4
+00:00:07,799 --> 00:00:10,786
+Space plays or pauses. Brackets skip lines.
+

@@ -1,6 +1,6 @@
 import { Notice, Plugin, TFile } from 'obsidian';
 import { DEFAULT_SETTINGS, EchoSettingTab, type EchoSettings } from './settings';
-import { VIDEO_EXTENSIONS } from './media/types';
+import { MEDIA_EXTENSIONS } from './media/types';
 import { LISTEN_VIEW_TYPE, ListenView, type ListenState } from './views/listen';
 
 export default class EchoPlugin extends Plugin {
@@ -28,7 +28,7 @@ export default class EchoPlugin extends Plugin {
 			name: '精听当前文件',
 			checkCallback: (checking) => {
 				const file = this.app.workspace.getActiveFile();
-				if (!file || !VIDEO_EXTENSIONS.has(file.extension.toLowerCase())) {
+				if (!file || !MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
 					return false;
 				}
 				if (!checking) {
@@ -40,7 +40,7 @@ export default class EchoPlugin extends Plugin {
 
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
-				if (!(file instanceof TFile) || !VIDEO_EXTENSIONS.has(file.extension.toLowerCase())) {
+				if (!(file instanceof TFile) || !MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
 					return;
 				}
 				menu.addItem((item) => {
@@ -89,7 +89,9 @@ export default class EchoPlugin extends Plugin {
 		});
 		if (!view) {
 			new Notice('无法打开精听视图');
+			return;
 		}
+		this.app.workspace.requestSaveLayout();
 	}
 
 	async loadSettings() {

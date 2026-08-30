@@ -27,6 +27,8 @@ export interface MediaSource {
 }
 
 export const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v']);
+export const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'wav', 'ogg', 'flac', 'aac', 'opus']);
+export const MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS]);
 export const SUBTITLE_EXTENSIONS = new Set(['srt', 'vtt']);
 
 export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5];

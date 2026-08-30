@@ -48,7 +48,17 @@ export class LocalFileSource implements MediaSource {
 	}
 
 	play(): void {
-		void this.videoEl?.play();
+		const el = this.videoEl;
+		if (!el) {
+			return;
+		}
+		el.muted = false;
+		const result = el.play();
+		if (result !== undefined) {
+			void result.catch(() => {
+				// Autoplay may be blocked until a gesture; toolbar/space still retry.
+			});
+		}
 	}
 
 	pause(): void {
