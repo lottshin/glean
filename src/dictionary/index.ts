@@ -1,12 +1,11 @@
 import { EcdictFile } from './ecdict';
 import { LemmaFile } from './lemma';
 import type { DictionaryLookup, DictionaryMatch } from './types';
+import { normalizeLexiconKey } from '../normalize';
 
 const CACHE_LIMIT = 200;
 
-export function normalizeDictionaryKey(value: string): string {
-	return value.normalize('NFKC').replaceAll('’', "'").trim().toLowerCase();
-}
+export const normalizeDictionaryKey = normalizeLexiconKey;
 
 function possessiveBase(key: string): string | null {
 	if (key.endsWith("'s") && key.length > 2) {
@@ -49,7 +48,7 @@ export class DictionaryService {
 		const result = await this.lookupUncached(surface, key);
 		this.cache.set(key, result);
 		if (this.cache.size > CACHE_LIMIT) {
-			const oldest = this.cache.keys().next().value as string | undefined;
+			const oldest = this.cache.keys().next().value;
 			if (oldest !== undefined) {
 				this.cache.delete(oldest);
 			}

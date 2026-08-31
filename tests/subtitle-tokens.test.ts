@@ -18,4 +18,11 @@ describe('tokenizeSubtitle', () => {
 		expect(tokens.map((token) => token.text).join('')).toBe('state-of-the-art\n技术');
 		expect(tokens.filter((token) => token.kind === 'word')).toHaveLength(2);
 	});
+
+	it('normalizes curved apostrophes and compatibility characters', () => {
+		const words = tokenizeSubtitle('Don’t ＲＵＮ')
+			.filter((token) => token.kind === 'word')
+			.map((token) => token.lookup);
+		expect(words).toEqual(["don't", 'run']);
+	});
 });

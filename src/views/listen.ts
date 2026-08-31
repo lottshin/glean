@@ -1,4 +1,5 @@
-import { ItemView, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import { normalizeDictionaryKey } from '../dictionary';
 import type EchoPlugin from '../main';
 import { cueIndexAt } from '../media/cues';
 import {
@@ -369,8 +370,10 @@ export class ListenView extends ItemView {
 			}
 			const px = evt.clientY - rect.top;
 			const clamped = Math.min(rect.height * 0.7, Math.max(100, px));
-			this.playerPaneEl.style.flex = `0 0 ${clamped}px`;
-			this.playerPaneEl.style.maxHeight = 'none';
+			this.playerPaneEl.addClass('is-resized');
+			this.playerPaneEl.setCssProps({
+				'--echo-player-height': `${clamped}px`,
+			});
 		};
 		const onUp = () => {
 			if (!this.splitDragging) {
@@ -459,8 +462,7 @@ export class ListenView extends ItemView {
 		}
 
 		if (this.playerPaneEl) {
-			this.playerPaneEl.style.removeProperty('flex');
-			this.playerPaneEl.style.removeProperty('max-height');
+			this.playerPaneEl.removeClass('is-resized');
 		}
 
 		this.currentVideo = video;
@@ -607,17 +609,89 @@ export class ListenView extends ItemView {
 		const lookupId = ++this.lookupSequence;
 		this.selectedWord = { cueIndex: cue.index, wordIndex, lookupId };
 		this.paintWordSelection(previous, this.selectedWord);
+		const initialCard = this.plugin.findLexiconCard(word);
 		this.wordPopover.open(anchor, {
 			lookupId,
 			word,
 			sentence: cue.text,
 			sourceName: this.currentVideo?.name ?? '当前媒体',
 			timeLabel: formatTimestamp(cue.start),
+			inLexicon: initialCard !== null,
+			status: initialCard?.status,
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
+			onSave: async (lookup) => {
+				if (!this.currentVideo) {
+					throw new Error('没有来源媒体');
+				}
+				const resolved = lookup ?? {
+					surface: word,
+					lemma: normalizeDictionaryKey(word),
+					match: 'missing' as const,
+					entry: null,
+				};
+				try {
+					return await this.plugin.saveWord({
+						lookup: resolved,
+						context: {
+							sentence: cue.text,
+							sourcePath: this.currentVideo.path,
+							time: cue.start,
+							timeLabel: formatTimestamp(cue.start),
+						},
+					});
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '生词保存失败');
+					throw error;
+				}
+			},
+			onRemove: async (lookup) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				try {
+					const removed = await this.plugin.removeWord(lemma);
+					if (!removed) {
+						throw new Error('找不到对应的生词笔记');
+					}
+					new Notice(`已将 ${lemma} 移到废纸篓`);
+					return true;
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '移出生词失败');
+					throw error;
+				}
+			},
+			onOpenNote: async (lookup) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				const opened = await this.plugin.openWordNote(lemma);
+				if (!opened) {
+					new Notice('找不到对应的生词笔记');
+				}
+				return opened;
+			},
+			onStatus: async (lookup, status) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				try {
+					const updated = await this.plugin.setWordStatus(lemma, status);
+					if (!updated) {
+						new Notice('找不到对应的生词笔记');
+					}
+					return updated;
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '更新生词状态失败');
+					throw error;
+				}
+			},
 		});
 		void this.plugin
 			.lookupWord(word)
-			.then((lookup) => this.wordPopover.update(lookupId, lookup))
+			.then((lookup) => {
+				const key = lookup?.lemma ?? word;
+				const card = this.plugin.findLexiconCard(key);
+				this.wordPopover.update(
+					lookupId,
+					lookup,
+					card !== null,
+					card?.status,
+				);
+			})
 			.catch(() => this.wordPopover.update(lookupId, null));
 	}
 
@@ -1116,6 +1190,10 @@ export class ListenView extends ItemView {
 				evt.preventDefault();
 				this.toggleHidden();
 			}
+			return;
+		}
+		if (key === 'Enter' && this.wordPopover.saveCurrent()) {
+			evt.preventDefault();
 			return;
 		}
 		if (key === '[') {
