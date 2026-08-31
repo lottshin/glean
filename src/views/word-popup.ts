@@ -1,9 +1,12 @@
+import type { DictionaryLookup } from '../dictionary';
+
 export interface WordLookupContext {
 	lookupId: number;
 	word: string;
 	sentence: string;
 	sourceName: string;
 	timeLabel: string;
+	lookup?: DictionaryLookup | null;
 	onDismiss: (lookupId: number) => void;
 }
 
@@ -13,6 +16,7 @@ export interface WordLookupContext {
  */
 export class EchoWordPopover {
 	private popoverEl: HTMLElement | null = null;
+	private anchorEl: HTMLElement | null = null;
 	private context: WordLookupContext | null = null;
 	private ownerDocument: Document | null = null;
 	private removeListeners: (() => void) | null = null;
@@ -27,28 +31,12 @@ export class EchoWordPopover {
 		popover.setAttribute('aria-label', `查询 ${context.word}`);
 		popover.addEventListener('pointerdown', (event) => event.stopPropagation());
 
-		const kicker = popover.createDiv({ cls: 'echo-word-popover-kicker', text: '词条预览' });
-		kicker.setAttribute('aria-hidden', 'true');
-		popover.createEl('h2', {
-			cls: 'echo-word-popover-title',
-			text: context.word,
-		});
-		popover.createDiv({
-			cls: 'echo-word-popover-pending',
-			text: '离线词典将在 M2 接入',
-		});
-
-		const contextEl = popover.createDiv({ cls: 'echo-word-popover-context' });
-		contextEl.createEl('blockquote', { text: context.sentence });
-		contextEl.createDiv({
-			cls: 'echo-word-popover-source',
-			text: `${context.sourceName} · ${context.timeLabel}`,
-		});
-
 		doc.body.appendChild(popover);
 		this.popoverEl = popover;
+		this.anchorEl = anchor;
 		this.context = context;
 		this.ownerDocument = doc;
+		this.render();
 		this.position(anchor);
 
 		const onOutsidePointerDown = (event: PointerEvent) => {
@@ -77,6 +65,17 @@ export class EchoWordPopover {
 		};
 	}
 
+	update(lookupId: number, lookup: DictionaryLookup | null): void {
+		if (!this.context || this.context.lookupId !== lookupId) {
+			return;
+		}
+		this.context.lookup = lookup;
+		this.render();
+		if (this.anchorEl?.isConnected) {
+			this.position(this.anchorEl);
+		}
+	}
+
 	close(): void {
 		const context = this.context;
 		if (!context && !this.popoverEl) {
@@ -86,6 +85,7 @@ export class EchoWordPopover {
 		this.removeListeners = null;
 		this.popoverEl?.remove();
 		this.popoverEl = null;
+		this.anchorEl = null;
 		this.context = null;
 		this.ownerDocument = null;
 		context?.onDismiss(context.lookupId);
@@ -93,6 +93,70 @@ export class EchoWordPopover {
 
 	destroy(): void {
 		this.close();
+	}
+
+	private render(): void {
+		const popover = this.popoverEl;
+		const context = this.context;
+		if (!popover || !context) {
+			return;
+		}
+		popover.empty();
+		const kicker = popover.createDiv({
+			cls: 'echo-word-popover-kicker',
+			text: context.lookup?.match === 'inflection' ? '词形还原' : '词条',
+		});
+		kicker.setAttribute('aria-hidden', 'true');
+		const title = popover.createDiv({ cls: 'echo-word-popover-heading' });
+		title.createEl('h2', {
+			cls: 'echo-word-popover-title',
+			text: context.word,
+		});
+		if (context.lookup?.entry && context.lookup.match !== 'direct') {
+			title.createSpan({
+				cls: 'echo-word-popover-lemma',
+				text: `→ ${context.lookup.entry.word}`,
+			});
+		}
+
+		if (context.lookup === undefined) {
+			popover.createDiv({ cls: 'echo-word-popover-pending', text: '正在查询…' });
+		} else if (context.lookup === null) {
+			popover.createDiv({
+				cls: 'echo-word-popover-pending',
+				text: '未安装离线词典，请在 Echo 设置中选择词典目录。',
+			});
+		} else if (!context.lookup.entry) {
+			popover.createDiv({
+				cls: 'echo-word-popover-pending',
+				text: '离线词典未收录这个词。',
+			});
+		} else {
+			const entry = context.lookup.entry;
+			if (entry.phonetic) {
+				popover.createDiv({
+					cls: 'echo-word-popover-phonetic',
+					text: `/${entry.phonetic.replace(/^\/|\/$/g, '')}/`,
+				});
+			}
+			if (entry.pos) {
+				popover.createDiv({ cls: 'echo-word-popover-pos', text: entry.pos });
+			}
+			const senses = popover.createDiv({ cls: 'echo-word-popover-senses' });
+			for (const translation of entry.translations) {
+				senses.createDiv({ cls: 'echo-word-popover-sense', text: translation });
+			}
+			if (entry.translations.length === 0 && entry.definition) {
+				senses.createDiv({ cls: 'echo-word-popover-sense', text: entry.definition });
+			}
+		}
+
+		const contextEl = popover.createDiv({ cls: 'echo-word-popover-context' });
+		contextEl.createEl('blockquote', { text: context.sentence });
+		contextEl.createDiv({
+			cls: 'echo-word-popover-source',
+			text: `${context.sourceName} · ${context.timeLabel}`,
+		});
 	}
 
 	private position(anchor: HTMLElement): void {

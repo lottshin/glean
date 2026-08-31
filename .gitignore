@@ -12,6 +12,9 @@ docs/PRD.md
 # npm
 node_modules
 
+# Downloaded and generated dictionary data (recreated with tools/*.mjs)
+data/
+
 # Don't include the compiled main.js file in the repo.
 # They should be uploaded to GitHub releases instead.
 main.js

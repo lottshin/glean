@@ -615,6 +615,10 @@ export class ListenView extends ItemView {
 			timeLabel: formatTimestamp(cue.start),
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
 		});
+		void this.plugin
+			.lookupWord(word)
+			.then((lookup) => this.wordPopover.update(lookupId, lookup))
+			.catch(() => this.wordPopover.update(lookupId, null));
 	}
 
 	/** The highlight only lives as long as the lookup it belongs to. */

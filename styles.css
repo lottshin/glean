@@ -653,13 +653,52 @@
 	text-transform: uppercase;
 }
 
+.echo-word-popover-heading {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
 .echo-word-popover-title {
-	margin: 0 0 6px;
+	margin: 0;
 	font-size: 20px;
+}
+
+.echo-word-popover-lemma,
+.echo-word-popover-phonetic,
+.echo-word-popover-pos {
+	color: var(--text-muted);
+}
+
+.echo-word-popover-lemma {
+	font-size: 13px;
+}
+
+.echo-word-popover-phonetic {
+	margin-top: 4px;
+	font-family: var(--font-monospace);
+	font-size: 12px;
+}
+
+.echo-word-popover-pos {
+	margin-top: 8px;
+	font-size: 11px;
+}
+
+.echo-word-popover-senses {
+	display: grid;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.echo-word-popover-sense {
+	font-size: 13px;
+	line-height: 1.45;
 }
 
 .echo-word-popover-pending,
 .echo-word-popover-source {
+	margin-top: 6px;
 	color: var(--text-muted);
 	font-size: 12px;
 }
