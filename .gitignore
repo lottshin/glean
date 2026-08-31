@@ -22,5 +22,8 @@ main.js
 # obsidian
 data.json
 
+# Marker for the Hot Reload plugin during local development
+.hotreload
+
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store

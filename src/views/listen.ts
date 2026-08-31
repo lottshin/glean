@@ -12,12 +12,14 @@ import { LocalFileSource } from '../media/local';
 import { MediaSuggestModal } from '../media/picker';
 import { formatTimestamp, parseSubtitles } from '../media/srt';
 import { findSiblingSubtitle } from '../media/subtitles';
+import { tokenizeSubtitle } from '../media/subtitle-tokens';
 import {
 	AUDIO_EXTENSIONS,
 	MEDIA_EXTENSIONS,
 	PLAYBACK_RATES,
 	type Cue,
 } from '../media/types';
+import { EchoWordPopover } from './word-popup';
 
 export const LISTEN_VIEW_TYPE = 'echo-listen';
 
@@ -63,6 +65,14 @@ export class ListenView extends ItemView {
 	private mode: EchoViewMode = 'listen';
 	/** In dictation mode: whether the original sentence is hidden. */
 	private hidden = true;
+	private selectedWord: {
+		cueIndex: number;
+		wordIndex: number;
+		lookupId: number;
+	} | null = null;
+	private lookupSequence = 0;
+	private lookupOpenTimer: number | null = null;
+	private wordPopover = new EchoWordPopover();
 	private focusEl: HTMLElement | null = null;
 	private focusTextEl: HTMLElement | null = null;
 	private focusMetaEl: HTMLElement | null = null;
@@ -313,6 +323,7 @@ export class ListenView extends ItemView {
 		if (this.mode === mode) {
 			return;
 		}
+		this.closeWordLookup();
 		this.mode = mode;
 		if (mode === 'dictation') {
 			this.hidden = true;
@@ -418,6 +429,7 @@ export class ListenView extends ItemView {
 			return;
 		}
 
+		this.closeWordLookup();
 		this.sentenceMode = false;
 		this.sentenceArmed = false;
 		this.source.pause();
@@ -495,14 +507,166 @@ export class ListenView extends ItemView {
 		for (const cue of this.cues) {
 			const row = this.cueListEl.createDiv({ cls: 'echo-cue' });
 			row.createSpan({ cls: 'echo-cue-time', text: formatTimestamp(cue.start) });
-			row.createSpan({
-				cls: 'echo-cue-text',
-				text: this.displayCueText(cue),
-			});
+			const textEl = row.createSpan({ cls: 'echo-cue-text' });
+			this.renderCueText(textEl, cue);
 			row.addEventListener('click', () => {
 				this.playSentence(cue);
 			});
 			this.cueEls.push(row);
+		}
+	}
+
+	private renderCueText(textEl: HTMLElement, cue: Cue): void {
+		this.renderCueTokens(textEl, cue, 'echo-word');
+	}
+
+	/**
+	 * Words stay clickable in every mode as long as the real sentence is on
+	 * screen; a masked sentence is rendered as plain text.
+	 */
+	private renderCueTokens(host: HTMLElement, cue: Cue, cls: string): void {
+		host.empty();
+		const shown = this.displayCueText(cue);
+		if (shown !== cue.text) {
+			host.setText(shown);
+			return;
+		}
+
+		let wordIndex = 0;
+		for (const token of tokenizeSubtitle(cue.text)) {
+			if (token.kind === 'separator' || !token.lookup) {
+				host.appendText(token.text);
+				continue;
+			}
+			const index = wordIndex++;
+			// A span, not a button: themes restyle buttons with their own
+			// background and shadow, which would tint every single word.
+			const word = host.createSpan({
+				cls,
+				text: token.text,
+				attr: {
+					role: 'button',
+					tabindex: '-1',
+					'aria-label': `查词：${token.lookup}`,
+					'data-echo-cue-index': String(cue.index),
+					'data-echo-word-index': String(index),
+				},
+			});
+			if (
+				this.selectedWord?.cueIndex === cue.index &&
+				this.selectedWord.wordIndex === index
+			) {
+				word.addClass('is-selected');
+			}
+			let pointerStart: { x: number; y: number } | null = null;
+			word.addEventListener('pointerdown', (evt) => {
+				pointerStart = { x: evt.clientX, y: evt.clientY };
+			});
+			word.addEventListener('click', (evt) => {
+				evt.stopPropagation();
+				if (evt.detail > 1) {
+					this.clearLookupOpenTimer();
+					return;
+				}
+				const moved =
+					pointerStart !== null &&
+					Math.hypot(evt.clientX - pointerStart.x, evt.clientY - pointerStart.y) > 4;
+				const selection = word.ownerDocument.getSelection();
+				if (moved || selection?.toString()) {
+					return;
+				}
+				this.clearLookupOpenTimer();
+				this.lookupOpenTimer = window.setTimeout(() => {
+					this.lookupOpenTimer = null;
+					if (word.isConnected) {
+						this.openWordLookup(
+							word,
+							token.lookup ?? token.text,
+							cue,
+							index,
+						);
+					}
+				}, 180);
+			});
+			word.addEventListener('dblclick', (evt) => {
+				evt.stopPropagation();
+				this.clearLookupOpenTimer();
+			});
+		}
+	}
+
+	private openWordLookup(
+		anchor: HTMLElement,
+		word: string,
+		cue: Cue,
+		wordIndex: number,
+	): void {
+		this.clearAdvanceTimer();
+		this.inputEl?.blur();
+		const previous = this.selectedWord;
+		const lookupId = ++this.lookupSequence;
+		this.selectedWord = { cueIndex: cue.index, wordIndex, lookupId };
+		this.paintWordSelection(previous, this.selectedWord);
+		this.wordPopover.open(anchor, {
+			lookupId,
+			word,
+			sentence: cue.text,
+			sourceName: this.currentVideo?.name ?? '当前媒体',
+			timeLabel: formatTimestamp(cue.start),
+			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
+		});
+	}
+
+	/** The highlight only lives as long as the lookup it belongs to. */
+	private clearSelectedWord(lookupId: number): void {
+		if (!this.selectedWord || this.selectedWord.lookupId !== lookupId) {
+			return;
+		}
+		const previous = this.selectedWord;
+		this.selectedWord = null;
+		this.paintWordSelection(previous, null);
+		if (this.mode === 'dictation') {
+			this.focusDictInput();
+		}
+	}
+
+	private paintWordSelection(
+		previous: { cueIndex: number; wordIndex: number } | null,
+		next: { cueIndex: number; wordIndex: number } | null,
+	): void {
+		if (previous) {
+			for (const el of this.wordElements(previous.cueIndex, previous.wordIndex)) {
+				el.removeClass('is-selected');
+			}
+		}
+		if (next) {
+			for (const el of this.wordElements(next.cueIndex, next.wordIndex)) {
+				el.addClass('is-selected');
+			}
+		}
+	}
+
+	private wordElements(cueIndex: number, wordIndex: number): HTMLElement[] {
+		return Array.from(
+			this.contentEl.querySelectorAll<HTMLElement>(
+				`[data-echo-cue-index="${cueIndex}"][data-echo-word-index="${wordIndex}"]`,
+			),
+		);
+	}
+
+	private closeWordLookup(): void {
+		this.clearLookupOpenTimer();
+		this.wordPopover.close();
+		const selected = this.selectedWord;
+		if (selected) {
+			this.clearSelectedWord(selected.lookupId);
+		}
+	}
+
+	private clearLookupOpenTimer(): void {
+		if (this.lookupOpenTimer !== null) {
+			window.clearTimeout(this.lookupOpenTimer);
+			this.lookupOpenTimer = null;
 		}
 	}
 
@@ -548,7 +712,7 @@ export class ListenView extends ItemView {
 			}
 			const textEl = row.querySelector('.echo-cue-text');
 			if (textEl instanceof HTMLElement) {
-				textEl.setText(this.displayCueText(cue));
+				this.renderCueText(textEl, cue);
 			}
 		}
 	}
@@ -576,7 +740,7 @@ export class ListenView extends ItemView {
 			this.focusTextEl.setText('播放或点一句开始精听。下一里程碑：点词查义与入库。');
 			return;
 		}
-		this.focusTextEl.setText(cue.text);
+		this.renderCueTokens(this.focusTextEl, cue, 'echo-word echo-focus-word');
 	}
 
 	private onTick(t: number): void {
@@ -614,6 +778,9 @@ export class ListenView extends ItemView {
 	}
 
 	private setActive(index: number): void {
+		if (index !== this.activeIndex) {
+			this.closeWordLookup();
+		}
 		if (this.activeIndex >= 0) {
 			this.cueEls[this.activeIndex]?.removeClass('is-active');
 		}
@@ -821,6 +988,7 @@ export class ListenView extends ItemView {
 		if (this.mode !== 'dictation') {
 			return;
 		}
+		this.closeWordLookup();
 		this.hidden = !this.hidden;
 		this.dictRevealed = !this.hidden;
 		this.syncHideButton();
@@ -1002,6 +1170,8 @@ export class ListenView extends ItemView {
 
 	private teardown(): void {
 		this.clearAdvanceTimer();
+		this.clearLookupOpenTimer();
+		this.wordPopover.destroy();
 		for (const u of this.unsubs) {
 			u();
 		}

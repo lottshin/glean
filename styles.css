@@ -90,7 +90,8 @@
 }
 
 .echo-btn.is-active-mode {
-	background: color-mix(in srgb, var(--echo-accent) 22%, transparent);
+	background: color-mix(in srgb, var(--echo-accent) 26%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--echo-accent) 50%, transparent);
 	color: var(--echo-ink);
 	font-weight: 650;
 }
@@ -590,10 +591,94 @@
 	font-size: 13.5px;
 }
 
+/* Clickable words remain visually identical to subtitle text at rest. */
+.echo-word {
+	display: inline;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background-color: transparent;
+	box-shadow: none;
+	color: inherit;
+	font: inherit;
+	line-height: inherit;
+	cursor: pointer;
+	transition:
+		color 0.12s ease,
+		border-bottom-color 0.12s ease;
+}
+
+.echo-word:hover {
+	color: var(--echo-accent);
+	border-bottom-color: color-mix(in srgb, var(--echo-accent) 60%, transparent);
+	border-bottom-style: dotted;
+}
+
+.echo-word:focus-visible {
+	outline: none;
+	border-bottom-color: var(--echo-accent);
+}
+
+.echo-word.is-selected,
+.echo-word.is-selected:hover {
+	border-bottom: 2px solid var(--echo-accent);
+	background-color: transparent;
+	box-shadow: none;
+	color: var(--echo-accent);
+}
+
+.echo-focus-word {
+	font-weight: inherit;
+}
+
+.echo-word-popover {
+	position: fixed;
+	z-index: var(--layer-popover, 30);
+	width: min(320px, calc(100vw - 20px));
+	padding: 16px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-normal);
+}
+
+.echo-word-popover-kicker {
+	margin-bottom: 4px;
+	color: var(--text-muted);
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.echo-word-popover-title {
+	margin: 0 0 6px;
+	font-size: 20px;
+}
+
+.echo-word-popover-pending,
+.echo-word-popover-source {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.echo-word-popover-context {
+	margin-top: 14px;
+}
+
+.echo-word-popover-context blockquote {
+	margin: 0 0 8px;
+	padding-left: 12px;
+	font-size: 13px;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.echo-btn,
 	.echo-dict-cell,
-	.echo-cue {
+	.echo-cue,
+	.echo-word {
 		transition: none;
 	}
 }
