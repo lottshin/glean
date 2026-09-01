@@ -4,7 +4,7 @@ import {
 	appendWordContext,
 	contextLine,
 	createWordNote,
-	hasEchoFrontmatter,
+	hasGleanFrontmatter,
 	type WordContext,
 	updateWordNote,
 	updateWordStatus,
@@ -16,7 +16,7 @@ import {
 	wordNoteLegacyPath,
 	wordNotePath,
 } from '../src/lexicon/path';
-import { parseEchoProtocol } from '../src/lexicon/protocol';
+import { parseGleanProtocol } from '../src/lexicon/protocol';
 
 const lookup: DictionaryLookup = {
 	surface: 'went',
@@ -50,30 +50,30 @@ describe('word note', () => {
 			lookup,
 			context,
 			date: '2026-08-31',
-			uid: 'echo-test-123',
+			uid: 'glean-test-123',
 		});
-		expect(hasEchoFrontmatter(note)).toBe(true);
-		expect(note).toContain('uid: "echo-test-123"');
+		expect(hasGleanFrontmatter(note)).toBe(true);
+		expect(note).toContain('uid: "glean-test-123"');
 		expect(note).toContain('lemma: "go"');
 		expect(note).toContain('forms:\n  - "went"');
 		expect(note).not.toContain('aliases:');
 		expect(note).toContain('# go');
 		expect(note).toContain(
-			'[00:12](obsidian://echo?src=Media%2FTED%20talk.mp4&t=12.34) · [[Media/TED talk.mp4]]',
+			'[00:12](obsidian://glean?src=Media%2FTED%20talk.mp4&t=12.34) · [[Media/TED talk.mp4]]',
 		);
 	});
 
-	it('recognizes comments on Echo frontmatter and updates only status', () => {
+	it('recognizes comments on Glean frontmatter and updates only status', () => {
 		const content = [
 			'---',
-			'echo: true # managed',
+			'glean: true # managed',
 			'status: new # old',
 			'custom: keep',
 			'---',
 			'',
 			'# go',
 		].join('\n');
-		expect(hasEchoFrontmatter(content)).toBe(true);
+		expect(hasGleanFrontmatter(content)).toBe(true);
 		const updated = updateWordStatus(content, 'known');
 		expect(updated).toContain('status: known');
 		expect(updated).toContain('custom: keep');
@@ -85,7 +85,7 @@ describe('word note', () => {
 			lookup,
 			context,
 			date: '2026-08-31',
-			uid: 'echo-test-123',
+			uid: 'glean-test-123',
 		})}\n## My notes\n\nA mnemonic.\n`;
 		const duplicate = appendWordContext(original, context);
 		expect(duplicate).toEqual({ content: original, added: false });
@@ -122,23 +122,23 @@ describe('word note', () => {
 		const card = [
 			'## Contexts',
 			'',
-			'- [00:12](obsidian://echo?src=Media%2FTED%20talk.mp4&t=12.34) — "Older format."',
+			'- [00:12](obsidian://glean?src=Media%2FTED%20talk.mp4&t=12.34) — "Older format."',
 			'',
 		].join('\n');
 		expect(appendWordContext(card, context).added).toBe(false);
 	});
 
 	it('adds a Contexts section to older cards that do not have one', () => {
-		const appended = appendWordContext('---\necho: true\n---\n\n# go\n', context);
+		const appended = appendWordContext('---\nglean: true\n---\n\n# go\n', context);
 		expect(appended.content).toContain(
-			`## Contexts\n<!-- echo-contexts -->\n\n${contextLine(context)}`,
+			`## Contexts\n<!-- glean-contexts -->\n\n${contextLine(context)}`,
 		);
 	});
 
 	it('does not insert contexts into a heading shown inside a code fence', () => {
 		const content = [
 			'---',
-			'echo: true',
+			'glean: true',
 			'---',
 			'',
 			'# go',
@@ -151,7 +151,7 @@ describe('word note', () => {
 		const appended = appendWordContext(content, context);
 		expect(appended.content).toContain('```markdown\n## Contexts\n```');
 		expect(appended.content).toContain(
-			`## Contexts\n<!-- echo-contexts -->\n\n${contextLine(context)}`,
+			`## Contexts\n<!-- glean-contexts -->\n\n${contextLine(context)}`,
 		);
 	});
 
@@ -161,10 +161,10 @@ describe('word note', () => {
 		expect(line).not.toContain('x'.repeat(298));
 	});
 
-	it('upgrades only Echo-owned frontmatter without rewriting user YAML', () => {
+	it('upgrades only Glean-owned frontmatter without rewriting user YAML', () => {
 		const original = [
 			'---',
-			'echo: true',
+			'glean: true',
 			'lemma: go',
 			'created: 2026-08-31',
 			'review: 2026-09-01 # keep this comment',
@@ -178,13 +178,13 @@ describe('word note', () => {
 		const updated = updateWordNote(
 			original,
 			{
-				echo: true,
+				glean: true,
 				lemma: 'go',
 				created: new Date('2026-08-31'),
 				review: new Date('2026-09-01'),
 				custom: { nested: 'value' },
 			},
-			{ lookup, context, date: '2026-08-31', uid: 'echo-stable-id' },
+			{ lookup, context, date: '2026-08-31', uid: 'glean-stable-id' },
 		);
 		expect(updated.changed).toBe(true);
 		expect(updated.content).toContain('created: 2026-08-31');
@@ -192,19 +192,19 @@ describe('word note', () => {
 			'review: 2026-09-01 # keep this comment',
 		);
 		expect(updated.content).toContain('custom:\n  nested: value');
-		expect(updated.content).toContain('uid: "echo-stable-id"');
+		expect(updated.content).toContain('uid: "glean-stable-id"');
 	});
 
 	it('rejects sanitized filename collisions between different lemmas', () => {
 		expect(() =>
 			updateWordNote(
-				'---\necho: true\nlemma: "ok?"\n---\n',
-				{ echo: true, lemma: 'ok?' },
+				'---\nglean: true\nlemma: "ok?"\n---\n',
+				{ glean: true, lemma: 'ok?' },
 				{
 					lookup: { ...lookup, surface: 'ok*', lemma: 'ok*' },
 					context,
 					date: '2026-08-31',
-					uid: 'echo-test',
+					uid: 'glean-test',
 				},
 			),
 		).toThrow(/文件名冲突/);
@@ -215,14 +215,14 @@ describe('word note', () => {
 			lookup,
 			context,
 			date: '2026-08-31',
-			uid: 'echo-stable-id',
+			uid: 'glean-stable-id',
 		};
 		const original = createWordNote(input);
 		const updated = updateWordNote(
 			original,
 			{
-				echo: true,
-				uid: 'echo-stable-id',
+				glean: true,
+				uid: 'glean-stable-id',
 				lemma: 'go',
 				status: 'new',
 				created: '2026-08-31',
@@ -247,15 +247,15 @@ describe('word note', () => {
 			lookup: wordless,
 			context,
 			date: '2026-08-31',
-			uid: 'echo-stable-id',
+			uid: 'glean-stable-id',
 		};
 		const original = createWordNote(input);
 		expect(
 			updateWordNote(
 				original,
 				{
-					echo: true,
-					uid: 'echo-stable-id',
+					glean: true,
+					uid: 'glean-stable-id',
 					lemma: 'go',
 					status: 'new',
 					created: '2026-08-31',
@@ -273,7 +273,7 @@ describe('word note', () => {
 	it('folds legacy aliases into forms and drops the global field', () => {
 		const original = [
 			'---',
-			'echo: true',
+			'glean: true',
 			'lemma: go',
 			'aliases:',
 			'  - went',
@@ -284,12 +284,12 @@ describe('word note', () => {
 		].join('\n');
 		const updated = updateWordNote(
 			original,
-			{ echo: true, lemma: 'go', aliases: ['went', 'Going'] },
+			{ glean: true, lemma: 'go', aliases: ['went', 'Going'] },
 			{
 				lookup: { ...lookup, surface: 'WENT' },
 				context,
 				date: '2026-09-01',
-				uid: 'echo-stable-id',
+				uid: 'glean-stable-id',
 			},
 		);
 		expect(updated.content).not.toContain('aliases:');
@@ -300,8 +300,8 @@ describe('word note', () => {
 	it('preserves list comments and removes stale scalar continuations', () => {
 		const original = [
 			'---',
-			'echo: true',
-			'uid: echo-stable-id',
+			'glean: true',
+			'uid: glean-stable-id',
 			'lemma: go',
 			'status: new',
 			'created: 2026-08-31',
@@ -320,8 +320,8 @@ describe('word note', () => {
 		const updated = updateWordNote(
 			original,
 			{
-				echo: true,
-				uid: 'echo-stable-id',
+				glean: true,
+				uid: 'glean-stable-id',
 				lemma: 'go',
 				status: 'new',
 				created: '2026-08-31',
@@ -333,7 +333,7 @@ describe('word note', () => {
 				lookup: { ...lookup, surface: 'gone' },
 				context,
 				date: '2026-09-01',
-				uid: 'echo-stable-id',
+				uid: 'glean-stable-id',
 			},
 		);
 		expect(updated.content).toContain('  # keep this list comment');
@@ -347,17 +347,17 @@ describe('word note', () => {
 describe('word note paths', () => {
 	it('shards by first letter so a folder never holds the whole lexicon', () => {
 		expect(lemmaBucket('go')).toBe('g');
-		expect(wordNotePath('Echo/Words', 'go')).toBe('Echo/Words/g/go.md');
-		expect(wordNotePath('Echo/Words', 'went')).toBe('Echo/Words/w/went.md');
-		expect(wordNoteLegacyPath('Echo/Words', 'bracket')).toBe(
-			'Echo/Words/bracket.md',
+		expect(wordNotePath('Glean/Words', 'go')).toBe('Glean/Words/g/go.md');
+		expect(wordNotePath('Glean/Words', 'went')).toBe('Glean/Words/w/went.md');
+		expect(wordNoteLegacyPath('Glean/Words', 'bracket')).toBe(
+			'Glean/Words/bracket.md',
 		);
 	});
 
 	it('keeps Windows reserved names and odd lemmas writable', () => {
 		expect(sanitizeLemmaFileName('con')).toBe('_con');
 		expect(lemmaBucket('3d')).toBe('0-9');
-		expect(wordNotePath('Echo/Words', 'ok?')).toBe('Echo/Words/o/ok-.md');
+		expect(wordNotePath('Glean/Words', 'ok?')).toBe('Glean/Words/o/ok-.md');
 	});
 });
 
@@ -365,12 +365,12 @@ describe('lexicon catalog', () => {
 	it('resolves saved inflections for reading highlight without scanning files', () => {
 		const catalog = new LexiconCatalog();
 		catalog.upsert({
-			path: 'Echo/Words/g/go.md',
+			path: 'Glean/Words/g/go.md',
 			lemma: 'go',
 			forms: ['went', 'going'],
 			status: 'new',
 		});
-		expect(catalog.get('Went')?.path).toBe('Echo/Words/g/go.md');
+		expect(catalog.get('Went')?.path).toBe('Glean/Words/g/go.md');
 		expect(catalog.get('GO')?.lemma).toBe('go');
 		expect(catalog.statusOf('going')).toBe('new');
 		expect(catalog.size).toBe(1);
@@ -379,33 +379,33 @@ describe('lexicon catalog', () => {
 	it('does not remove another card that owns the same lemma key', () => {
 		const catalog = new LexiconCatalog();
 		catalog.upsert({
-			path: 'Echo/Words/a/alpha.md',
+			path: 'Glean/Words/a/alpha.md',
 			lemma: 'same',
 			forms: [],
 			status: 'new',
 		});
 		catalog.upsert({
-			path: 'Echo/Words/b/beta.md',
+			path: 'Glean/Words/b/beta.md',
 			lemma: 'same',
 			forms: [],
 			status: 'new',
 		});
-		catalog.removePath('Echo/Words/a/alpha.md');
-		expect(catalog.get('same')?.path).toBe('Echo/Words/b/beta.md');
+		catalog.removePath('Glean/Words/a/alpha.md');
+		expect(catalog.get('same')?.path).toBe('Glean/Words/b/beta.md');
 	});
 });
 
-describe('Echo protocol', () => {
+describe('Glean protocol', () => {
 	it('accepts a valid source and timestamp', () => {
-		expect(parseEchoProtocol({ src: 'Media/TED talk.mp4', t: '12.34' })).toEqual({
+		expect(parseGleanProtocol({ src: 'Media/TED talk.mp4', t: '12.34' })).toEqual({
 			sourcePath: 'Media/TED talk.mp4',
 			time: 12.34,
 		});
 	});
 
 	it('rejects missing, negative and non-numeric targets', () => {
-		expect(parseEchoProtocol({ src: '', t: '1' })).toBeNull();
-		expect(parseEchoProtocol({ src: 'movie.mp4', t: '-1' })).toBeNull();
-		expect(parseEchoProtocol({ src: 'movie.mp4', t: 'later' })).toBeNull();
+		expect(parseGleanProtocol({ src: '', t: '1' })).toBeNull();
+		expect(parseGleanProtocol({ src: 'movie.mp4', t: '-1' })).toBeNull();
+		expect(parseGleanProtocol({ src: 'movie.mp4', t: 'later' })).toBeNull();
 	});
 });

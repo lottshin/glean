@@ -25,7 +25,7 @@ export interface WordLookupContext {
  * Non-modal lookup surface anchored to a subtitle word.
  * Dictionary results can replace the placeholder without changing its lifecycle.
  */
-export class EchoWordPopover {
+export class GleanWordPopover {
 	private popoverEl: HTMLElement | null = null;
 	private anchorEl: HTMLElement | null = null;
 	private context: WordLookupContext | null = null;
@@ -38,7 +38,7 @@ export class EchoWordPopover {
 		this.close();
 
 		const doc = anchor.ownerDocument;
-		const popover = doc.body.createDiv({ cls: 'echo-word-popover' });
+		const popover = doc.body.createDiv({ cls: 'glean-word-popover' });
 		popover.setAttribute('role', 'dialog');
 		popover.setAttribute('aria-label', `查询 ${context.word}`);
 		popover.addEventListener('pointerdown', (event) => event.stopPropagation());
@@ -135,65 +135,65 @@ export class EchoWordPopover {
 		}
 		popover.empty();
 		const kicker = popover.createDiv({
-			cls: 'echo-word-popover-kicker',
+			cls: 'glean-word-popover-kicker',
 			text: context.lookup?.match === 'inflection' ? '词形还原' : '词条',
 		});
 		kicker.setAttribute('aria-hidden', 'true');
-		const title = popover.createDiv({ cls: 'echo-word-popover-heading' });
+		const title = popover.createDiv({ cls: 'glean-word-popover-heading' });
 		title.createEl('h2', {
-			cls: 'echo-word-popover-title',
+			cls: 'glean-word-popover-title',
 			text: context.word,
 		});
 		if (context.lookup?.entry && context.lookup.match !== 'direct') {
 			title.createSpan({
-				cls: 'echo-word-popover-lemma',
+				cls: 'glean-word-popover-lemma',
 				text: `→ ${context.lookup.entry.word}`,
 			});
 		}
 
 		if (context.lookup === undefined) {
-			popover.createDiv({ cls: 'echo-word-popover-pending', text: '正在查询…' });
+			popover.createDiv({ cls: 'glean-word-popover-pending', text: '正在查询…' });
 		} else if (context.lookup === null) {
 			popover.createDiv({
-				cls: 'echo-word-popover-pending',
-				text: '未安装离线词典，请在 Echo 设置中选择词典目录。',
+				cls: 'glean-word-popover-pending',
+				text: '未安装离线词典，请在 Glean 设置中选择词典目录。',
 			});
 		} else if (!context.lookup.entry) {
 			popover.createDiv({
-				cls: 'echo-word-popover-pending',
+				cls: 'glean-word-popover-pending',
 				text: '离线词典未收录这个词。',
 			});
 		} else {
 			const entry = context.lookup.entry;
 			if (entry.phonetic) {
 				popover.createDiv({
-					cls: 'echo-word-popover-phonetic',
+					cls: 'glean-word-popover-phonetic',
 					text: `/${entry.phonetic.replace(/^\/|\/$/g, '')}/`,
 				});
 			}
 			if (entry.pos) {
-				popover.createDiv({ cls: 'echo-word-popover-pos', text: entry.pos });
+				popover.createDiv({ cls: 'glean-word-popover-pos', text: entry.pos });
 			}
-			const senses = popover.createDiv({ cls: 'echo-word-popover-senses' });
+			const senses = popover.createDiv({ cls: 'glean-word-popover-senses' });
 			for (const translation of entry.translations) {
-				senses.createDiv({ cls: 'echo-word-popover-sense', text: translation });
+				senses.createDiv({ cls: 'glean-word-popover-sense', text: translation });
 			}
 			if (entry.translations.length === 0 && entry.definition) {
-				senses.createDiv({ cls: 'echo-word-popover-sense', text: entry.definition });
+				senses.createDiv({ cls: 'glean-word-popover-sense', text: entry.definition });
 			}
 		}
 
-		const contextEl = popover.createDiv({ cls: 'echo-word-popover-context' });
+		const contextEl = popover.createDiv({ cls: 'glean-word-popover-context' });
 		contextEl.createEl('blockquote', { text: context.sentence });
 		contextEl.createDiv({
-			cls: 'echo-word-popover-source',
+			cls: 'glean-word-popover-source',
 			text: `${context.sourceName} · ${context.timeLabel}`,
 		});
 
-		const actions = popover.createDiv({ cls: 'echo-word-popover-actions' });
+		const actions = popover.createDiv({ cls: 'glean-word-popover-actions' });
 		const inLexicon = Boolean(context.inLexicon) || this.saveState === 'saved';
 		if (inLexicon) {
-			const statusRow = actions.createDiv({ cls: 'echo-word-popover-status' });
+			const statusRow = actions.createDiv({ cls: 'glean-word-popover-status' });
 			statusRow.createSpan({ text: '状态' });
 			const statusSelect = statusRow.createEl('select');
 			const statusOptions: Array<[WordStatus, string]> = [
@@ -211,9 +211,9 @@ export class EchoWordPopover {
 			statusSelect.addEventListener('change', () => {
 				void this.setStatus(statusSelect.value as WordStatus);
 			});
-			const secondary = actions.createDiv({ cls: 'echo-word-popover-secondary' });
+			const secondary = actions.createDiv({ cls: 'glean-word-popover-secondary' });
 			const openButton = secondary.createEl('button', {
-				cls: 'echo-btn echo-word-popover-open',
+				cls: 'glean-btn glean-word-popover-open',
 				text: '打开笔记',
 			});
 			openButton.disabled = this.removeState === 'removing' || this.saveState === 'saving';
@@ -221,7 +221,7 @@ export class EchoWordPopover {
 				void this.openNote();
 			});
 			const removeButton = secondary.createEl('button', {
-				cls: 'echo-btn echo-word-popover-remove',
+				cls: 'glean-btn glean-word-popover-remove',
 				text:
 					this.removeState === 'removing'
 						? '正在移出…'
@@ -235,7 +235,7 @@ export class EchoWordPopover {
 			});
 		}
 		const saveButton = actions.createEl('button', {
-			cls: 'echo-btn echo-btn-primary echo-word-popover-save',
+			cls: 'glean-btn glean-btn-primary glean-word-popover-save',
 			text:
 				this.saveState === 'saving'
 					? '正在保存…'

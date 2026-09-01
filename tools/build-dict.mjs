@@ -15,8 +15,8 @@ function usage() {
   node tools/build-dict.mjs --input <ecdict.csv> [--out-dir <dir>] [--rank-limit <n>]
 
 Outputs:
-  echo-dict-v1.tsv      Sorted lookup records
-  echo-inflect-v1.tsv   Sorted inflection → lemma records
+  glean-dict-v1.tsv      Sorted lookup records
+  glean-inflect-v1.tsv   Sorted inflection → lemma records
   report.json           Source, filtering, size and truncation measurements`);
 }
 
@@ -279,8 +279,8 @@ async function main() {
 			.join('\n') + (inflections.size ? '\n' : '');
 
 	await fs.mkdir(outDir, { recursive: true });
-	const dictionaryPath = path.join(outDir, 'echo-dict-v1.tsv');
-	const inflectionPath = path.join(outDir, 'echo-inflect-v1.tsv');
+	const dictionaryPath = path.join(outDir, 'glean-dict-v1.tsv');
+	const inflectionPath = path.join(outDir, 'glean-inflect-v1.tsv');
 	await Promise.all([
 		fs.writeFile(dictionaryPath, dictionaryText),
 		fs.writeFile(inflectionPath, inflectionText),

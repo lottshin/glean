@@ -62,7 +62,7 @@ export function decorateReadableArticle(
 		if (!host) {
 			continue;
 		}
-		const fragment = host.createSpan({ cls: 'echo-read-fragment' });
+		const fragment = host.createSpan({ cls: 'glean-read-fragment' });
 		fragment.detach();
 		for (const token of tokens) {
 			if (token.kind !== 'word' || !token.lookup || !isEnglishWord(token.text)) {
@@ -78,16 +78,21 @@ export function decorateReadableArticle(
 				}
 			}
 			const word = fragment.createSpan({
-				cls: 'echo-read-word',
+				cls: 'glean-read-word',
 				text: token.text,
 			});
 			word.setAttribute('role', 'button');
-			word.dataset.echoWord = token.lookup;
+			word.dataset.gleanWord = token.lookup;
 			const status = statusOf(token.lookup);
 			if (status === 'new' || status === 'learning') {
 				word.classList.add(`is-${status}`);
 			}
 			word.addEventListener('click', (event) => {
+				// Dragging across a sentence ends on a word; opening the lookup
+				// there would fight the selection the reader just made.
+				if (hasTextSelection(word)) {
+					return;
+				}
 				event.preventDefault();
 				event.stopPropagation();
 				onWord(word, token.lookup ?? token.text);
@@ -100,6 +105,11 @@ export function decorateReadableArticle(
 	return { unique: seen.size, known };
 }
 
+function hasTextSelection(el: HTMLElement): boolean {
+	const selection = el.ownerDocument.defaultView?.getSelection();
+	return !!selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+}
+
 function shouldWrap(node: Text): boolean {
 	const parent = node.parentElement;
 	if (!parent) {
@@ -107,7 +117,7 @@ function shouldWrap(node: Text): boolean {
 	}
 	if (
 		parent.closest(
-			'.echo-read-word, .echo-read-fragment, .echo-word-note-toolbar, .internal-embed, .cm-scroller, .footnote-ref, .tag',
+			'.glean-read-word, .glean-read-fragment, .glean-word-note-toolbar, .internal-embed, .cm-scroller, .footnote-ref, .tag',
 		)
 	) {
 		return false;

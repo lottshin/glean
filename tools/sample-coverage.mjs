@@ -10,8 +10,8 @@ const SUBTITLE_EXTENSIONS = new Set(['.srt', '.vtt']);
 
 function usage() {
 	console.log(`Usage:
-  node tools/sample-coverage.mjs --dict <echo-dict-v1.tsv>
-    [--inflections <echo-inflect-v1.tsv>] [--sample-size 200] [--out <report.json>]
+  node tools/sample-coverage.mjs --dict <glean-dict-v1.tsv>
+    [--inflections <glean-inflect-v1.tsv>] [--sample-size 200] [--out <report.json>]
     <subtitle.srt|subtitle.vtt|directory> [...]`);
 }
 

@@ -11,9 +11,9 @@ import type { DictionaryLookup } from '../dictionary';
 import { normalizeLexiconKey } from '../normalize';
 import { LexiconCatalog, parseAliasList, parseWordStatus, type LexiconCard } from './catalog';
 import {
-	createEchoUid,
+	createGleanUid,
 	createWordNote,
-	hasEchoFrontmatter,
+	hasGleanFrontmatter,
 	type WordContext,
 	type WordStatus,
 	updateWordNote,
@@ -175,7 +175,7 @@ export class LexiconStore {
 		const canonical = wordNotePath(folder, lemma);
 		const existing = await this.locate(lemma);
 		const date = new Date().toISOString().slice(0, 10);
-		const uid = createEchoUid();
+		const uid = createGleanUid();
 
 		if (!existing) {
 			await this.ensureFolder(canonical.slice(0, canonical.lastIndexOf('/')));
@@ -188,10 +188,10 @@ export class LexiconStore {
 		}
 
 		const original = await this.app.vault.read(existing);
-		const cachedEcho =
-			this.app.metadataCache.getFileCache(existing)?.frontmatter?.echo === true;
-		if (!cachedEcho && !hasEchoFrontmatter(original)) {
-			throw new Error(`已有同名笔记且不是 Echo 生词：${existing.path}`);
+		const cachedGlean =
+			this.app.metadataCache.getFileCache(existing)?.frontmatter?.glean === true;
+		if (!cachedGlean && !hasGleanFrontmatter(original)) {
+			throw new Error(`已有同名笔记且不是 Glean 生词：${existing.path}`);
 		}
 
 		const preview = this.updateContent(original, input, date, uid);
@@ -323,7 +323,7 @@ export class LexiconStore {
 
 	private cardFromFile(file: TFile): LexiconCard | null {
 		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-		if (frontmatter?.echo !== true) {
+		if (frontmatter?.glean !== true) {
 			return null;
 		}
 		const forms = [
@@ -343,7 +343,7 @@ export class LexiconStore {
 	}
 
 	private normalizedFolder(): string {
-		return normalizePath(this.wordsFolder().trim() || 'Echo/Words');
+		return normalizePath(this.wordsFolder().trim() || 'Glean/Words');
 	}
 
 	private updateContent(
@@ -406,7 +406,7 @@ export class LexiconStore {
 		await this.ensureFolder(this.folder());
 		const path = normalizePath(`${this.folder()}/_migration-report.md`);
 		const lines = [
-			'# Echo 生词目录整理报告',
+			'# Glean 生词目录整理报告',
 			'',
 			`生成时间：${new Date().toISOString()}`,
 			'',

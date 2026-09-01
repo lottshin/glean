@@ -1,23 +1,24 @@
 import { existsSync } from 'fs';
 import { dirname, isAbsolute, join } from 'path';
-import { FileSystemAdapter, Notice, Plugin, TFile } from 'obsidian';
+import { FileSystemAdapter, Menu, Notice, Plugin, TFile, requestUrl } from 'obsidian';
 import { DictionaryService, type DictionaryLookup } from './dictionary';
 import { LexiconMigrationModal } from './lexicon/migration-modal';
 import { registerWordNoteChrome } from './lexicon/note-chrome';
 import type { WordStatus } from './lexicon/note';
-import { parseEchoProtocol } from './lexicon/protocol';
+import { parseGleanProtocol } from './lexicon/protocol';
 import {
 	LexiconStore,
 	type SaveWordInput,
 	type SaveWordResult,
 } from './lexicon/store';
-import { DEFAULT_SETTINGS, EchoSettingTab, type EchoSettings } from './settings';
+import { DEFAULT_SETTINGS, GleanSettingTab, type GleanSettings } from './settings';
 import { MEDIA_EXTENSIONS } from './media/types';
 import { LISTEN_VIEW_TYPE, ListenView, type ListenState } from './views/listen';
-import { ReadingMode } from './read/session';
+import { READ_ICON, ReadingMode } from './read/session';
+import { TranslationError, translateText } from './translate/provider';
 
-export default class EchoPlugin extends Plugin {
-	settings!: EchoSettings;
+export default class GleanPlugin extends Plugin {
+	settings!: GleanSettings;
 	dictionaryReady = false;
 	dictionaryError: string | null = null;
 	private dictionary: DictionaryService | null = null;
@@ -38,8 +39,30 @@ export default class EchoPlugin extends Plugin {
 
 		void this.reloadDictionary();
 
-		this.addRibbonIcon('headphones', 'Echo 精听', () => {
-			void this.activateListenView();
+		// One plugin, one ribbon slot. Listening and reading are co-equal, so
+		// the icon opens a menu instead of privileging either one.
+		this.addRibbonIcon('wheat', 'Glean', (event) => {
+			const file = this.app.workspace.getActiveFile();
+			const reading = this.reading.canEnable(file) && this.reading.isEnabled(file.path);
+			const menu = new Menu();
+			menu.addItem((item) =>
+				item
+					.setTitle('精听')
+					.setIcon('headphones')
+					.onClick(() => {
+						void this.activateListenView();
+					}),
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle(reading ? '退出阅读' : '阅读当前笔记')
+					.setIcon(READ_ICON)
+					.setDisabled(!this.reading.canEnable(file))
+					.onClick(() => {
+						void this.reading.toggle(file);
+					}),
+			);
+			menu.showAtMouseEvent(event);
 		});
 
 		this.addCommand({
@@ -99,6 +122,20 @@ export default class EchoPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'explain-selection',
+			name: '解析选中句子或段落',
+			checkCallback: (checking) => {
+				if (!this.reading.canExplainSelection()) {
+					return false;
+				}
+				if (!checking) {
+					this.reading.explainSelection();
+				}
+				return true;
+			},
+		});
+
+		this.addCommand({
 			id: 'remove-word',
 			name: '移出生词',
 			checkCallback: (checking) => {
@@ -120,7 +157,7 @@ export default class EchoPlugin extends Plugin {
 				}
 				if (MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
 					menu.addItem((item) => {
-						item.setTitle('Echo: 精听')
+						item.setTitle('Glean: 精听')
 							.setIcon('headphones')
 							.onClick(() => {
 								void this.openVideo(file);
@@ -129,7 +166,7 @@ export default class EchoPlugin extends Plugin {
 				}
 				if (this.lexicon.isWordNote(file)) {
 					menu.addItem((item) => {
-						item.setTitle('Echo: 移出生词')
+						item.setTitle('Glean: 移出生词')
 							.setIcon('trash')
 							.onClick(() => {
 								void this.removeWordFile(file);
@@ -137,8 +174,8 @@ export default class EchoPlugin extends Plugin {
 					});
 				} else if (file.extension.toLowerCase() === 'md') {
 					menu.addItem((item) => {
-						item.setTitle('Echo: 阅读')
-							.setIcon('book-open')
+						item.setTitle('Glean: 阅读')
+							.setIcon(READ_ICON)
 							.onClick(() => {
 								void this.reading.toggle(file);
 							});
@@ -147,13 +184,13 @@ export default class EchoPlugin extends Plugin {
 			}),
 		);
 
-		this.registerObsidianProtocolHandler('echo', (parameters) => {
-			void this.openEchoLink(parameters);
+		this.registerObsidianProtocolHandler('glean', (parameters) => {
+			void this.openGleanLink(parameters);
 		});
 
 		registerWordNoteChrome(this);
 
-		this.addSettingTab(new EchoSettingTab(this.app, this));
+		this.addSettingTab(new GleanSettingTab(this.app, this));
 		this.app.workspace.onLayoutReady(() => {
 			void this.checkLexiconLayout();
 		});
@@ -178,8 +215,44 @@ export default class EchoPlugin extends Plugin {
 		return this.dictionary?.lookup(word) ?? null;
 	}
 
+	refreshReadingViews(): void {
+		this.reading.refresh();
+	}
+
 	async saveWord(input: SaveWordInput): Promise<SaveWordResult> {
 		return this.lexicon.save(input);
+	}
+
+	/**
+	 * Only reached from an explicit user action, and only when translation is
+	 * enabled in settings. Nothing leaves the vault otherwise.
+	 */
+	async translatePassage(text: string): Promise<string> {
+		return translateText(
+			{
+				enabled: this.settings.translateEnabled,
+				provider: this.settings.translateProvider,
+				apiKey: this.settings.translateApiKey,
+				endpoint: this.settings.translateEndpoint,
+				model: this.settings.translateModel,
+				targetLang: this.settings.translateTarget,
+			},
+			text,
+			async (request) => {
+				try {
+					const response = await requestUrl({
+						url: request.url,
+						method: request.method,
+						headers: request.headers,
+						body: request.body,
+						throw: false,
+					});
+					return { status: response.status, text: response.text };
+				} catch {
+					throw new TranslationError(`无法连接翻译服务：${request.url}`);
+				}
+			},
+		);
 	}
 
 	async removeWord(word: string): Promise<boolean> {
@@ -194,7 +267,7 @@ export default class EchoPlugin extends Plugin {
 		try {
 			const removed = await this.lexicon.removeFile(file);
 			if (!removed) {
-				new Notice('这不是 Echo 生词笔记');
+				new Notice('这不是 Glean 生词笔记');
 				return false;
 			}
 			new Notice(`已将 ${file.basename} 移到废纸篓`);
@@ -246,7 +319,7 @@ export default class EchoPlugin extends Plugin {
 			return;
 		}
 		this.layoutNoticeShown = true;
-		new Notice('发现旧版生词目录，请运行“Echo: 整理生词目录”完成整理。');
+		new Notice('发现旧版生词目录，请运行“Glean: 整理生词目录”完成整理。');
 	}
 
 	async reloadDictionary(): Promise<void> {
@@ -289,6 +362,10 @@ export default class EchoPlugin extends Plugin {
 					}
 				}
 			}
+		} finally {
+			if (generation === this.dictionaryGeneration) {
+				this.refreshReadingViews();
+			}
 		}
 	}
 
@@ -303,10 +380,10 @@ export default class EchoPlugin extends Plugin {
 			? isAbsolute(configured)
 				? configured
 				: join(vaultPath, configured)
-			: join(vaultPath, this.app.vault.configDir, 'echo', 'dict');
+			: join(vaultPath, this.app.vault.configDir, 'glean', 'dict');
 		return {
-			dictionary: join(directory, 'echo-dict-v1.tsv'),
-			inflections: join(directory, 'echo-inflect-v1.tsv'),
+			dictionary: join(directory, 'glean-dict-v1.tsv'),
+			inflections: join(directory, 'glean-inflect-v1.tsv'),
 		};
 	}
 
@@ -346,13 +423,13 @@ export default class EchoPlugin extends Plugin {
 		this.app.workspace.requestSaveLayout();
 	}
 
-	private async openEchoLink(parameters: Record<string, string>): Promise<void> {
-		const target = parseEchoProtocol(parameters);
+	private async openGleanLink(parameters: Record<string, string>): Promise<void> {
+		const target = parseGleanProtocol(parameters);
 		if (!target) {
-			new Notice('Echo 回跳链接无效');
+			new Notice('Glean 回跳链接无效');
 			return;
 		}
-		const file = this.resolveEchoSource(target.sourcePath);
+		const file = this.resolveGleanSource(target.sourcePath);
 		if (!file) {
 			const oldName = target.sourcePath.split('/').at(-1);
 			const sameName = oldName
@@ -374,7 +451,7 @@ export default class EchoPlugin extends Plugin {
 		await this.openVideo(file, target.time);
 	}
 
-	private resolveEchoSource(sourcePath: string): TFile | null {
+	private resolveGleanSource(sourcePath: string): TFile | null {
 		const isMedia = (file: TFile | null): file is TFile =>
 			file instanceof TFile && MEDIA_EXTENSIONS.has(file.extension.toLowerCase());
 		const exact = this.app.vault.getAbstractFileByPath(sourcePath);
@@ -392,11 +469,11 @@ export default class EchoPlugin extends Plugin {
 
 		// Obsidian updates the readable wikilink when media is renamed, but it
 		// cannot rewrite the custom protocol URL. Recover from links on the
-		// active Echo card only when the original folder identifies one source.
-		const activeIsEcho =
+		// active Glean card only when the original folder identifies one source.
+		const activeIsGlean =
 			active &&
-			this.app.metadataCache.getFileCache(active)?.frontmatter?.echo === true;
-		const links = activeIsEcho
+			this.app.metadataCache.getFileCache(active)?.frontmatter?.glean === true;
+		const links = activeIsGlean
 			? (this.app.metadataCache.getFileCache(active)?.links ?? [])
 			: [];
 		const candidates = Array.from(
@@ -429,7 +506,7 @@ export default class EchoPlugin extends Plugin {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<EchoSettings>,
+			(await this.loadData()) as Partial<GleanSettings>,
 		);
 	}
 

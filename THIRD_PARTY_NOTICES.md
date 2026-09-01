@@ -2,7 +2,7 @@
 
 ## ECDICT
 
-Echo's optional offline dictionary data is derived from
+Glean's optional offline dictionary data is derived from
 [ECDICT](https://github.com/skywind3000/ECDICT).
 
 ```text

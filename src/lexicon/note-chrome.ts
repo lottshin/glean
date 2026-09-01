@@ -1,14 +1,14 @@
 import { MarkdownView, TFile } from 'obsidian';
-import type EchoPlugin from '../main';
+import type GleanPlugin from '../main';
 
-const ACTION_CLASS = 'echo-word-note-action';
-const TOOLBAR_CLASS = 'echo-word-note-toolbar';
+const ACTION_CLASS = 'glean-word-note-action';
+const TOOLBAR_CLASS = 'glean-word-note-toolbar';
 
 /**
- * Visible remove affordances for Echo word notes: a header action and a
+ * Visible remove affordances for Glean word notes: a header action and a
  * reading/preview toolbar. Commands and file menus stay available too.
  */
-export function registerWordNoteChrome(plugin: EchoPlugin): void {
+export function registerWordNoteChrome(plugin: GleanPlugin): void {
 	const syncHeaderAction = () => {
 		for (const leaf of plugin.app.workspace.getLeavesOfType('markdown')) {
 			const view = leaf.view;
@@ -58,7 +58,7 @@ function clearBodyToolbar(view: MarkdownView): void {
 function syncBodyToolbar(
 	view: MarkdownView,
 	file: TFile,
-	plugin: EchoPlugin,
+	plugin: GleanPlugin,
 ): void {
 	if (view.getMode() !== 'preview') {
 		return;
@@ -70,11 +70,11 @@ function syncBodyToolbar(
 	const toolbar = host.createDiv({ cls: TOOLBAR_CLASS });
 	host.prepend(toolbar);
 	toolbar.createDiv({
-		cls: 'echo-word-note-toolbar-label',
-		text: 'Echo 生词',
+		cls: 'glean-word-note-toolbar-label',
+		text: 'Glean 生词',
 	});
 	const remove = toolbar.createEl('button', {
-		cls: 'echo-btn echo-word-note-toolbar-remove',
+		cls: 'glean-btn glean-word-note-toolbar-remove',
 		text: '移出生词',
 	});
 	remove.addEventListener('click', (event) => {

@@ -11,7 +11,7 @@ export class LexiconMigrationModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.setTitle('整理 Echo 生词目录');
+		this.setTitle('整理 Glean 生词目录');
 		const { contentEl } = this;
 		contentEl.createEl('p', {
 			text: `将移动 ${this.plan.moves.length} 个生词文件到首字母目录。`,

@@ -6,6 +6,7 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
+		'dev-probe',
 		'esbuild.config.mjs',
 		'version-bump.mjs',
 		'versions.json',
@@ -36,6 +37,14 @@ export default defineConfig(
 		rules: {
 			'no-console': 'off',
 			'obsidianmd/rule-custom-message': 'off',
+		},
+	},
+	{
+		// Environment-agnostic modules: unit tested under Node, so they cannot
+		// reach for `window`.
+		files: ['src/translate/*.ts'],
+		rules: {
+			'obsidianmd/prefer-window-timers': 'off',
 		},
 	},
 );

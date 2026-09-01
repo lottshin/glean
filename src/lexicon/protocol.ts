@@ -1,9 +1,9 @@
-export interface EchoProtocolTarget {
+export interface GleanProtocolTarget {
 	sourcePath: string;
 	time: number;
 }
 
-export function parseEchoProtocol(parameters: Record<string, string>): EchoProtocolTarget | null {
+export function parseGleanProtocol(parameters: Record<string, string>): GleanProtocolTarget | null {
 	const sourcePath = parameters.src?.trim();
 	const time = Number(parameters.t);
 	if (!sourcePath || !Number.isFinite(time) || time < 0) {

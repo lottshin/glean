@@ -10,7 +10,7 @@ const subtitle = path.join(root, 'tests/fixtures/coverage.srt');
 const temporaryDirectories: string[] = [];
 
 function temporaryDirectory(): string {
-	const directory = mkdtempSync(path.join(tmpdir(), 'echo-dict-'));
+	const directory = mkdtempSync(path.join(tmpdir(), 'glean-dict-'));
 	temporaryDirectories.push(directory);
 	return directory;
 }
@@ -38,8 +38,8 @@ describe('dictionary data tools', () => {
 			{ cwd: root },
 		);
 
-		const dictionary = readFileSync(path.join(output, 'echo-dict-v1.tsv'), 'utf8');
-		const inflections = readFileSync(path.join(output, 'echo-inflect-v1.tsv'), 'utf8');
+		const dictionary = readFileSync(path.join(output, 'glean-dict-v1.tsv'), 'utf8');
+		const inflections = readFileSync(path.join(output, 'glean-inflect-v1.tsv'), 'utf8');
 		const report = JSON.parse(readFileSync(path.join(output, 'report.json'), 'utf8')) as {
 			output: { dictionary: { entries: number } };
 			stats: { translationTruncated: number };
@@ -79,9 +79,9 @@ describe('dictionary data tools', () => {
 			[
 				'tools/sample-coverage.mjs',
 				'--dict',
-				path.join(output, 'echo-dict-v1.tsv'),
+				path.join(output, 'glean-dict-v1.tsv'),
 				'--inflections',
-				path.join(output, 'echo-inflect-v1.tsv'),
+				path.join(output, 'glean-inflect-v1.tsv'),
 				'--out',
 				reportPath,
 				subtitle,

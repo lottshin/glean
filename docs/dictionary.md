@@ -1,6 +1,6 @@
-# Echo 离线词典数据
+# Glean 离线词典数据
 
-Echo 的运行时词典由构建脚本从 ECDICT 生成。原始 CSV 和生成的 TSV 都不提交到 Git，
+Glean 的运行时词典由构建脚本从 ECDICT 生成。原始 CSV 和生成的 TSV 都不提交到 Git，
 避免把几十 MB 的数据塞进插件主包；正式发布时，生成物应作为独立 Release Asset 分发。
 
 ## 来源与许可
@@ -9,19 +9,19 @@ Echo 的运行时词典由构建脚本从 ECDICT 生成。原始 CSV 和生成�
 - 数据文件：`ecdict.csv`
 - 当前上游文件约 76 万词条、65.9 MB
 - 上游仓库声明采用 MIT License，版权声明为 `Copyright (c) 2025 Linwei`
-- 发布 Echo 词典产物时，必须同时附带上游 LICENSE 和来源链接
+- 发布 Glean 词典产物时，必须同时附带上游 LICENSE 和来源链接
 
 构建脚本不会修改上游数据，只做筛选、字段截断、排序和格式转换。
 
 ## 为什么使用 TSV
 
-Echo v1 仅支持 Obsidian 桌面端，可以直接通过 Node `fs` 按字节读取文件。排序 TSV
+Glean v1 仅支持 Obsidian 桌面端，可以直接通过 Node `fs` 按字节读取文件。排序 TSV
 支持文件内二分查找，不需要把整个词典载入内存，也不需要额外引入 SQLite WASM。
 
 生成两个文件：
 
-- `echo-dict-v1.tsv`：词条查询表，按第一列 `lookup` 升序排列
-- `echo-inflect-v1.tsv`：词形到 lemma 的映射，按第一列 `form` 升序排列
+- `glean-dict-v1.tsv`：词条查询表，按第一列 `lookup` 升序排列
+- `glean-inflect-v1.tsv`：词形到 lemma 的映射，按第一列 `form` 升序排列
 
 词典表字段依次为：
 
@@ -79,8 +79,8 @@ npm run dict:build -- \
 
 ```bash
 npm run dict:coverage -- \
-  --dict data/generated/echo-dict-v1.tsv \
-  --inflections data/generated/echo-inflect-v1.tsv \
+  --dict data/generated/glean-dict-v1.tsv \
+  --inflections data/generated/glean-inflect-v1.tsv \
   --sample-size 200 \
   --out data/generated/coverage.json \
   /path/to/subtitles
@@ -94,8 +94,8 @@ npm run dict:coverage -- \
 灰度安装时，把发布产物中的两个 TSV 文件放在：
 
 ```text
-<vault>/.obsidian/echo/dict/
+<vault>/.obsidian/glean/dict/
 ```
 
 不要放在插件目录。开发环境的插件目录可能是 Git 仓库软链接，插件更新也可能清空目录。
-重载插件后，Echo 设置页应显示“已加载 Echo 离线词典”。也可以在设置中填写其他绝对路径，或填写相对 vault 根目录的路径。目录存在但文件缺失、损坏或不可读时，启动和设置页会显示失败目录。
+重载插件后，Glean 设置页应显示“已加载 Glean 离线词典”。也可以在设置中填写其他绝对路径，或填写相对 vault 根目录的路径。目录存在但文件缺失、损坏或不可读时，启动和设置页会显示失败目录。

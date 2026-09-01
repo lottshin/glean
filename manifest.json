@@ -1,6 +1,6 @@
 {
-	"id": "echo",
-	"name": "Echo",
+	"id": "glean",
+	"name": "Glean",
 	"version": "0.0.1",
 	"minAppVersion": "1.6.6",
 	"description": "Learn English by intensive listening and reading. Vocabulary lives as Markdown notes in your vault.",

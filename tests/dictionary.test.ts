@@ -13,7 +13,7 @@ import { SortedTsvFile } from '../src/dictionary/sorted-tsv';
 
 const root = path.resolve(import.meta.dirname, '..');
 const fixture = path.join(root, 'tests/fixtures/ecdict-mini.csv');
-const output = mkdtempSync(path.join(tmpdir(), 'echo-runtime-dict-'));
+const output = mkdtempSync(path.join(tmpdir(), 'glean-runtime-dict-'));
 let dictionary: DictionaryService;
 
 beforeAll(async () => {
@@ -31,8 +31,8 @@ beforeAll(async () => {
 		{ cwd: root },
 	);
 	dictionary = await DictionaryService.open(
-		path.join(output, 'echo-dict-v1.tsv'),
-		path.join(output, 'echo-inflect-v1.tsv'),
+		path.join(output, 'glean-dict-v1.tsv'),
+		path.join(output, 'glean-inflect-v1.tsv'),
 	);
 });
 
@@ -105,7 +105,7 @@ describe('DictionaryService', () => {
 	});
 
 	it('keeps the generated files sorted', () => {
-		const keys = readFileSync(path.join(output, 'echo-dict-v1.tsv'), 'utf8')
+		const keys = readFileSync(path.join(output, 'glean-dict-v1.tsv'), 'utf8')
 			.split('\n')
 			.filter(Boolean)
 			.map((line) => line.split('\t')[0] ?? '');

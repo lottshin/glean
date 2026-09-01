@@ -28,5 +28,8 @@ data.json
 # Marker for the Hot Reload plugin during local development
 .hotreload
 
+# Throwaway CDP probes used to verify behaviour in a live Obsidian window
+dev-probe/
+
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store

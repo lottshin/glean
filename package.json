@@ -1,5 +1,5 @@
 {
-	"name": "echo",
+	"name": "glean",
 	"version": "0.0.1",
 	"description": "Learn English inside Obsidian by intensive listening and reading, with a Markdown vocabulary notebook.",
 	"main": "main.js",

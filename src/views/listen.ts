@@ -1,6 +1,6 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
 import { normalizeDictionaryKey } from '../dictionary';
-import type EchoPlugin from '../main';
+import type GleanPlugin from '../main';
 import { cueIndexAt } from '../media/cues';
 import {
 	buildDictCells,
@@ -20,28 +20,28 @@ import {
 	PLAYBACK_RATES,
 	type Cue,
 } from '../media/types';
-import { EchoWordPopover } from './word-popup';
+import { GleanWordPopover } from './word-popup';
 
-export const LISTEN_VIEW_TYPE = 'echo-listen';
+export const LISTEN_VIEW_TYPE = 'glean-listen';
 
-export type EchoViewMode = 'listen' | 'dictation';
+export type GleanViewMode = 'listen' | 'dictation';
 
 export interface ListenState {
 	videoPath: string;
 	subtitlePath: string | null;
 	seekTo?: number;
-	mode?: EchoViewMode;
+	mode?: GleanViewMode;
 }
 
 type DictCellView = DictCell & { span: HTMLElement };
 
 /**
- * Echo listen view.
+ * Glean listen view.
  * Default mode is intensive listening (current sentence + cue list).
  * Dictation is an explicit mode switch, not a permanent second panel.
  */
 export class ListenView extends ItemView {
-	plugin: EchoPlugin;
+	plugin: GleanPlugin;
 	private source = new LocalFileSource();
 	private videoEl: HTMLVideoElement | null = null;
 	private cueListEl: HTMLElement | null = null;
@@ -63,7 +63,7 @@ export class ListenView extends ItemView {
 	private sentenceStart = 0;
 	private sentenceEnd = 0;
 	private pendingSeek: number | null = null;
-	private mode: EchoViewMode = 'listen';
+	private mode: GleanViewMode = 'listen';
 	/** In dictation mode: whether the original sentence is hidden. */
 	private hidden = true;
 	private selectedWord: {
@@ -73,7 +73,7 @@ export class ListenView extends ItemView {
 	} | null = null;
 	private lookupSequence = 0;
 	private lookupOpenTimer: number | null = null;
-	private wordPopover = new EchoWordPopover();
+	private wordPopover = new GleanWordPopover();
 	private focusEl: HTMLElement | null = null;
 	private focusTextEl: HTMLElement | null = null;
 	private focusMetaEl: HTMLElement | null = null;
@@ -92,7 +92,7 @@ export class ListenView extends ItemView {
 	private audioSubEl: HTMLElement | null = null;
 	private splitDragging = false;
 
-	constructor(leaf: WorkspaceLeaf, plugin: EchoPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: GleanPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -102,7 +102,7 @@ export class ListenView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return this.currentVideo ? `Echo · ${this.currentVideo.basename}` : 'Echo 精听';
+		return this.currentVideo ? `Glean · ${this.currentVideo.basename}` : 'Glean 精听';
 	}
 
 	getIcon(): string {
@@ -146,65 +146,65 @@ export class ListenView extends ItemView {
 	private renderShell(): void {
 		const root = this.contentEl;
 		root.empty();
-		root.addClass('echo-listen');
+		root.addClass('glean-listen');
 		root.tabIndex = 0;
 
-		const toolbar = root.createDiv({ cls: 'echo-toolbar' });
+		const toolbar = root.createDiv({ cls: 'glean-toolbar' });
 
-		const transport = toolbar.createDiv({ cls: 'echo-toolbar-group' });
-		this.playBtn = transport.createEl('button', { text: '播放', cls: 'echo-btn echo-btn-primary' });
+		const transport = toolbar.createDiv({ cls: 'glean-toolbar-group' });
+		this.playBtn = transport.createEl('button', { text: '播放', cls: 'glean-btn glean-btn-primary' });
 		this.playBtn.addEventListener('click', () => this.togglePlayback());
 
 		const replayBtn = transport.createEl('button', {
 			text: '重听',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '重听本句 (R)' },
 		});
 		replayBtn.addEventListener('click', () => this.replayCurrent());
 
 		const prevBtn = transport.createEl('button', {
 			text: '上一句',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '[' },
 		});
 		prevBtn.addEventListener('click', () => this.jumpBy(-1));
 
 		const nextBtn = transport.createEl('button', {
 			text: '下一句',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: ']' },
 		});
 		nextBtn.addEventListener('click', () => this.jumpBy(1));
 
-		const modes = toolbar.createDiv({ cls: 'echo-toolbar-group echo-mode-group' });
+		const modes = toolbar.createDiv({ cls: 'glean-toolbar-group glean-mode-group' });
 		this.modeListenBtn = modes.createEl('button', {
 			text: '精听',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '精听模式：看字幕、点句重听（默认）' },
 		});
 		this.modeListenBtn.addEventListener('click', () => this.setMode('listen'));
 		this.modeDictBtn = modes.createEl('button', {
 			text: '听写',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '听写模式：隐藏原句并实时匹配' },
 		});
 		this.modeDictBtn.addEventListener('click', () => this.setMode('dictation'));
 
-		const opts = toolbar.createDiv({ cls: 'echo-toolbar-group' });
+		const opts = toolbar.createDiv({ cls: 'glean-toolbar-group' });
 		const openBtn = opts.createEl('button', {
 			text: '打开',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '打开视频或音频' },
 		});
 		openBtn.addEventListener('click', () => this.openMediaPicker());
 
 		this.hideBtn = opts.createEl('button', {
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '显示 / 隐藏原句 (H)·仅听写模式' },
 		});
 		this.hideBtn.addEventListener('click', () => this.toggleHidden());
 
-		const rateSelect = opts.createEl('select', { cls: 'echo-rate', attr: { title: '倍速' } });
+		const rateSelect = opts.createEl('select', { cls: 'glean-rate', attr: { title: '倍速' } });
 		for (const rate of PLAYBACK_RATES) {
 			rateSelect.createEl('option', {
 				text: `${rate}×`,
@@ -216,72 +216,72 @@ export class ListenView extends ItemView {
 			this.source.setPlaybackRate(Number(rateSelect.value));
 		});
 
-		const meta = toolbar.createDiv({ cls: 'echo-toolbar-meta' });
-		this.timeEl = meta.createSpan({ cls: 'echo-time', text: '00:00 / 00:00' });
-		this.statusEl = meta.createSpan({ cls: 'echo-status', text: '打开媒体开始精听' });
+		const meta = toolbar.createDiv({ cls: 'glean-toolbar-meta' });
+		this.timeEl = meta.createSpan({ cls: 'glean-time', text: '00:00 / 00:00' });
+		this.statusEl = meta.createSpan({ cls: 'glean-status', text: '打开媒体开始精听' });
 
-		const body = root.createDiv({ cls: 'echo-body' });
+		const body = root.createDiv({ cls: 'glean-body' });
 
-		this.playerPaneEl = body.createDiv({ cls: 'echo-player-pane' });
-		const stage = this.playerPaneEl.createDiv({ cls: 'echo-player-stage' });
+		this.playerPaneEl = body.createDiv({ cls: 'glean-player-pane' });
+		const stage = this.playerPaneEl.createDiv({ cls: 'glean-player-stage' });
 
-		const empty = stage.createDiv({ cls: 'echo-player-empty' });
-		empty.createDiv({ cls: 'echo-player-empty-title', text: '还没有媒体' });
+		const empty = stage.createDiv({ cls: 'glean-player-empty' });
+		empty.createDiv({ cls: 'glean-player-empty-title', text: '还没有媒体' });
 		empty.createDiv({
-			cls: 'echo-player-empty-detail',
+			cls: 'glean-player-empty-detail',
 			text: '打开 vault 里的视频或音频。字幕放同目录同名 .srt / .vtt。',
 		});
 		const emptyOpen = empty.createEl('button', {
 			text: '打开媒体',
-			cls: 'echo-btn echo-btn-primary',
+			cls: 'glean-btn glean-btn-primary',
 		});
 		emptyOpen.addEventListener('click', () => this.openMediaPicker());
 
-		const audioCard = stage.createDiv({ cls: 'echo-audio-card' });
-		audioCard.createDiv({ cls: 'echo-audio-icon', text: '♪' });
-		const audioMeta = audioCard.createDiv({ cls: 'echo-audio-meta' });
-		this.audioTitleEl = audioMeta.createDiv({ cls: 'echo-audio-title', text: '' });
-		this.audioSubEl = audioMeta.createDiv({ cls: 'echo-audio-sub', text: '音频精听' });
+		const audioCard = stage.createDiv({ cls: 'glean-audio-card' });
+		audioCard.createDiv({ cls: 'glean-audio-icon', text: '♪' });
+		const audioMeta = audioCard.createDiv({ cls: 'glean-audio-meta' });
+		this.audioTitleEl = audioMeta.createDiv({ cls: 'glean-audio-title', text: '' });
+		this.audioSubEl = audioMeta.createDiv({ cls: 'glean-audio-sub', text: '音频精听' });
 
-		this.videoEl = stage.createEl('video', { cls: 'echo-video' });
+		this.videoEl = stage.createEl('video', { cls: 'glean-video' });
 		this.videoEl.controls = true;
 		this.videoEl.preload = 'metadata';
 		this.videoEl.muted = false;
 		this.videoEl.volume = 1;
 		this.videoEl.addEventListener('loadedmetadata', () => this.syncMediaChrome());
 
-		const veil = stage.createDiv({ cls: 'echo-video-veil' });
-		veil.createDiv({ cls: 'echo-video-veil-title', text: '听写中' });
+		const veil = stage.createDiv({ cls: 'glean-video-veil' });
+		veil.createDiv({ cls: 'glean-video-veil-title', text: '听写中' });
 		veil.createDiv({
-			cls: 'echo-video-veil-detail',
+			cls: 'glean-video-veil-detail',
 			text: '画面已遮挡，避免视频内烧录字幕泄题。声音照常，用上方按钮控制播放。',
 		});
 
 		const splitter = body.createDiv({
-			cls: 'echo-splitter',
+			cls: 'glean-splitter',
 			attr: { title: '拖动调整播放器高度' },
 		});
 		this.bindSplitter(splitter);
 
-		const side = body.createDiv({ cls: 'echo-side' });
+		const side = body.createDiv({ cls: 'glean-side' });
 
-		this.focusEl = side.createDiv({ cls: 'echo-focus' });
-		this.focusMetaEl = this.focusEl.createDiv({ cls: 'echo-focus-meta', text: '当前句' });
+		this.focusEl = side.createDiv({ cls: 'glean-focus' });
+		this.focusMetaEl = this.focusEl.createDiv({ cls: 'glean-focus-meta', text: '当前句' });
 		this.focusTextEl = this.focusEl.createDiv({
-			cls: 'echo-focus-text',
+			cls: 'glean-focus-text',
 			text: '播放或点一句开始精听。',
 		});
 
-		this.dictPanelEl = side.createDiv({ cls: 'echo-dict-panel' });
-		const dictHead = this.dictPanelEl.createDiv({ cls: 'echo-dict-head' });
-		dictHead.createSpan({ cls: 'echo-dict-kicker', text: '听写' });
+		this.dictPanelEl = side.createDiv({ cls: 'glean-dict-panel' });
+		const dictHead = this.dictPanelEl.createDiv({ cls: 'glean-dict-head' });
+		dictHead.createSpan({ cls: 'glean-dict-kicker', text: '听写' });
 		this.dictHintEl = dictHead.createDiv({
-			cls: 'echo-dict-hint',
+			cls: 'glean-dict-hint',
 			text: '隐藏原句，敲下听到的内容。',
 		});
-		this.dictEl = this.dictPanelEl.createDiv({ cls: 'echo-dict-cells' });
+		this.dictEl = this.dictPanelEl.createDiv({ cls: 'glean-dict-cells' });
 		this.inputEl = this.dictPanelEl.createEl('input', {
-			cls: 'echo-dict-input',
+			cls: 'glean-dict-input',
 			attr: {
 				type: 'text',
 				placeholder: '敲下听到的内容，这里会留下你的输入…',
@@ -293,9 +293,9 @@ export class ListenView extends ItemView {
 		this.inputEl.addEventListener('input', () => this.onDictInput());
 		this.inputEl.addEventListener('keydown', (evt) => this.onDictKey(evt));
 
-		const cuesWrap = side.createDiv({ cls: 'echo-cues-wrap' });
-		cuesWrap.createDiv({ cls: 'echo-cues-label', text: '字幕' });
-		this.cueListEl = cuesWrap.createDiv({ cls: 'echo-cues' });
+		const cuesWrap = side.createDiv({ cls: 'glean-cues-wrap' });
+		cuesWrap.createDiv({ cls: 'glean-cues-label', text: '字幕' });
+		this.cueListEl = cuesWrap.createDiv({ cls: 'glean-cues' });
 		this.renderEmptyCues(
 			'还没有字幕',
 			'打开媒体后，同目录同名的 .srt / .vtt 会自动挂上。',
@@ -320,7 +320,7 @@ export class ListenView extends ItemView {
 		}).open();
 	}
 
-	private setMode(mode: EchoViewMode): void {
+	private setMode(mode: GleanViewMode): void {
 		if (this.mode === mode) {
 			return;
 		}
@@ -360,7 +360,7 @@ export class ListenView extends ItemView {
 			if (!this.splitDragging || !this.playerPaneEl) {
 				return;
 			}
-			const body = this.contentEl.querySelector('.echo-body');
+			const body = this.contentEl.querySelector('.glean-body');
 			if (!(body instanceof HTMLElement)) {
 				return;
 			}
@@ -372,7 +372,7 @@ export class ListenView extends ItemView {
 			const clamped = Math.min(rect.height * 0.7, Math.max(100, px));
 			this.playerPaneEl.addClass('is-resized');
 			this.playerPaneEl.setCssProps({
-				'--echo-player-height': `${clamped}px`,
+				'--glean-player-height': `${clamped}px`,
 			});
 		};
 		const onUp = () => {
@@ -398,9 +398,9 @@ export class ListenView extends ItemView {
 			return;
 		}
 		this.cueListEl.empty();
-		const empty = this.cueListEl.createDiv({ cls: 'echo-empty' });
-		empty.createDiv({ cls: 'echo-empty-title', text: title });
-		empty.createDiv({ cls: 'echo-empty-detail', text: detail });
+		const empty = this.cueListEl.createDiv({ cls: 'glean-empty' });
+		empty.createDiv({ cls: 'glean-empty-title', text: title });
+		empty.createDiv({ cls: 'glean-empty-detail', text: detail });
 	}
 
 	private syncMediaChrome(): void {
@@ -507,9 +507,9 @@ export class ListenView extends ItemView {
 		}
 
 		for (const cue of this.cues) {
-			const row = this.cueListEl.createDiv({ cls: 'echo-cue' });
-			row.createSpan({ cls: 'echo-cue-time', text: formatTimestamp(cue.start) });
-			const textEl = row.createSpan({ cls: 'echo-cue-text' });
+			const row = this.cueListEl.createDiv({ cls: 'glean-cue' });
+			row.createSpan({ cls: 'glean-cue-time', text: formatTimestamp(cue.start) });
+			const textEl = row.createSpan({ cls: 'glean-cue-text' });
 			this.renderCueText(textEl, cue);
 			row.addEventListener('click', () => {
 				this.playSentence(cue);
@@ -519,7 +519,7 @@ export class ListenView extends ItemView {
 	}
 
 	private renderCueText(textEl: HTMLElement, cue: Cue): void {
-		this.renderCueTokens(textEl, cue, 'echo-word');
+		this.renderCueTokens(textEl, cue, 'glean-word');
 	}
 
 	/**
@@ -550,8 +550,8 @@ export class ListenView extends ItemView {
 					role: 'button',
 					tabindex: '-1',
 					'aria-label': `查词：${token.lookup}`,
-					'data-echo-cue-index': String(cue.index),
-					'data-echo-word-index': String(index),
+					'data-glean-cue-index': String(cue.index),
+					'data-glean-word-index': String(index),
 				},
 			});
 			if (
@@ -727,7 +727,7 @@ export class ListenView extends ItemView {
 	private wordElements(cueIndex: number, wordIndex: number): HTMLElement[] {
 		return Array.from(
 			this.contentEl.querySelectorAll<HTMLElement>(
-				`[data-echo-cue-index="${cueIndex}"][data-echo-word-index="${wordIndex}"]`,
+				`[data-glean-cue-index="${cueIndex}"][data-glean-word-index="${wordIndex}"]`,
 			),
 		);
 	}
@@ -788,7 +788,7 @@ export class ListenView extends ItemView {
 			if (!cue || !row) {
 				continue;
 			}
-			const textEl = row.querySelector('.echo-cue-text');
+			const textEl = row.querySelector('.glean-cue-text');
 			if (textEl instanceof HTMLElement) {
 				this.renderCueText(textEl, cue);
 			}
@@ -818,7 +818,7 @@ export class ListenView extends ItemView {
 			this.focusTextEl.setText('播放或点一句开始精听。下一里程碑：点词查义与入库。');
 			return;
 		}
-		this.renderCueTokens(this.focusTextEl, cue, 'echo-word echo-focus-word');
+		this.renderCueTokens(this.focusTextEl, cue, 'glean-word glean-focus-word');
 	}
 
 	private onTick(t: number): void {
@@ -912,7 +912,7 @@ export class ListenView extends ItemView {
 		const built = buildDictCells(cue.text);
 		this.dictNorm = built.norm;
 		for (const cell of built.cells) {
-			const span = this.dictEl.createSpan({ cls: 'echo-dict-cell' });
+			const span = this.dictEl.createSpan({ cls: 'glean-dict-cell' });
 			span.setText(this.cellDisplay(cell, 'pending'));
 			this.dictCells.push({ ...cell, span });
 		}
@@ -943,7 +943,7 @@ export class ListenView extends ItemView {
 			if (!cell) {
 				continue;
 			}
-			cell.span.className = 'echo-dict-cell';
+			cell.span.className = 'glean-dict-cell';
 			let state: 'pending' | 'matched' | 'current' | 'wrong' | 'revealed' = 'pending';
 
 			if (this.dictRevealed || !this.hidden) {
@@ -1226,7 +1226,7 @@ export class ListenView extends ItemView {
 			return;
 		}
 		this.source.setPlaybackRate(next);
-		const select = this.contentEl.querySelector('.echo-rate');
+		const select = this.contentEl.querySelector('.glean-rate');
 		if (select instanceof HTMLSelectElement) {
 			select.value = String(next);
 		}

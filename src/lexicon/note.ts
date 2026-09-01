@@ -29,10 +29,10 @@ export function sourceWikiLink(context: WordContext): string {
 	return `[[${context.sourcePath}]]`;
 }
 
-export function createEchoUid(): string {
+export function createGleanUid(): string {
 	const time = Date.now().toString(36);
 	const random = crypto.randomUUID().slice(0, 8);
-	return `echo-${time}-${random}`;
+	return `glean-${time}-${random}`;
 }
 
 export function wordNoteUri(context: WordContext): string | null {
@@ -41,7 +41,7 @@ export function wordNoteUri(context: WordContext): string | null {
 	}
 	const source = encodeURIComponent(context.sourcePath);
 	const time = Math.max(0, context.time);
-	return `obsidian://echo?src=${source}&t=${time}`;
+	return `obsidian://glean?src=${source}&t=${time}`;
 }
 
 export function contextLine(context: WordContext): string {
@@ -74,7 +74,7 @@ export function createWordNote(input: WordNoteInput): string {
 
 	const lines = [
 		'---',
-		'echo: true',
+		'glean: true',
 		`uid: ${yamlString(uid)}`,
 		`lemma: ${yamlString(lemma)}`,
 		'status: new',
@@ -101,7 +101,7 @@ export function createWordNote(input: WordNoteInput): string {
 				: ['- ']),
 		'',
 		'## Contexts',
-		'<!-- echo-contexts -->',
+		'<!-- glean-contexts -->',
 		'',
 		contextLine(context),
 		'',
@@ -109,9 +109,9 @@ export function createWordNote(input: WordNoteInput): string {
 	return lines.join('\n');
 }
 
-export function hasEchoFrontmatter(content: string): boolean {
+export function hasGleanFrontmatter(content: string): boolean {
 	const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-	return frontmatter ? /^echo:\s*true(?:\s+#.*)?\s*$/m.test(frontmatter) : false;
+	return frontmatter ? /^glean:\s*true(?:\s+#.*)?\s*$/m.test(frontmatter) : false;
 }
 
 export function appendWordContext(content: string, context: WordContext): {
@@ -126,7 +126,7 @@ export function appendWordContext(content: string, context: WordContext): {
 	const section = findContextsSection(content);
 	if (!section) {
 		return {
-			content: `${content.trimEnd()}\n\n## Contexts\n<!-- echo-contexts -->\n\n${line}\n`,
+			content: `${content.trimEnd()}\n\n## Contexts\n<!-- glean-contexts -->\n\n${line}\n`,
 			added: true,
 		};
 	}
@@ -161,7 +161,7 @@ function findContextsSection(content: string): { start: number; end: number } | 
 			for (let next = index + 1; next < lines.length; next += 1) {
 				const nextRaw = lines[next] ?? '';
 				const nextLine = nextRaw.replace(/\r?\n$/, '');
-				if (/^\s*<!--\s*echo-contexts\s*-->\s*$/.test(nextLine)) {
+				if (/^\s*<!--\s*glean-contexts\s*-->\s*$/.test(nextLine)) {
 					marked = true;
 				}
 				if (/^#{1,2}\s+/.test(nextLine)) {
@@ -259,7 +259,7 @@ function appendListValue(
 }
 
 /**
- * Upgrade an existing card without serializing all YAML. Only Echo-owned
+ * Upgrade an existing card without serializing all YAML. Only Glean-owned
  * fields are patched; user fields, formatting, comments and date literals
  * remain byte-for-byte unchanged.
  */
@@ -268,8 +268,8 @@ export function updateWordNote(
 	frontmatter: Record<string, unknown>,
 	input: WordNoteInput,
 ): { content: string; changed: boolean } {
-	if (frontmatter.echo !== true) {
-		throw new Error('已有同名笔记且不是 Echo 生词');
+	if (frontmatter.glean !== true) {
+		throw new Error('已有同名笔记且不是 Glean 生词');
 	}
 	const existingLemma = frontmatter.lemma;
 	if (
@@ -361,8 +361,8 @@ export function updateWordNote(
 }
 
 export function updateWordStatus(content: string, status: WordStatus): string {
-	if (!hasEchoFrontmatter(content)) {
-		throw new Error('这不是 Echo 生词笔记');
+	if (!hasGleanFrontmatter(content)) {
+		throw new Error('这不是 Glean 生词笔记');
 	}
 	const frontmatterMatch = content.match(
 		/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/,
