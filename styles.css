@@ -580,18 +580,68 @@ button.glean-btn.glean-btn-primary:disabled {
 	color: var(--glean-muted);
 }
 
-.glean-cue-edit {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: flex-end;
-	gap: 4px;
+.glean-cue-edit-hint {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+	color: var(--glean-muted);
 }
 
-.glean-cue-edit-btn {
-	padding: 2px 7px;
-	min-height: 24px;
+/* A gap between two words: hover shows an insertion caret, click splits here. */
+.glean-cut-slot {
+	position: relative;
+	cursor: text;
+	white-space: pre-wrap;
+	border-radius: 2px;
+}
+
+.glean-cut-slot::before {
+	content: '';
+	position: absolute;
+	top: 0.05em;
+	bottom: 0.05em;
+	left: 50%;
+	width: 2px;
+	transform: translateX(-50%) scaleY(0);
+	background: var(--glean-accent);
+	border-radius: 1px;
+	transition: transform 0.1s ease;
+}
+
+.glean-cut-slot:hover::before {
+	transform: translateX(-50%) scaleY(1);
+}
+
+/* A line-start affordance: hover shows ⌫, click merges into the previous cue. */
+.glean-merge-slot {
+	display: inline-block;
+	width: 0;
+	margin-right: 0;
+	overflow: hidden;
+	color: var(--glean-muted);
+	cursor: pointer;
+	vertical-align: baseline;
+	opacity: 0;
+	transition: width 0.1s ease, opacity 0.1s ease, margin-right 0.1s ease;
+}
+
+.glean-merge-slot::before {
+	content: '⌫';
 	font-size: 11px;
-	font-weight: 600;
+}
+
+.glean-cue:hover .glean-merge-slot {
+	width: 1.1em;
+	margin-right: 3px;
+	opacity: 0.75;
+}
+
+.glean-merge-slot:hover {
+	color: var(--glean-accent);
+	opacity: 1;
 }
 
 .glean-cues {

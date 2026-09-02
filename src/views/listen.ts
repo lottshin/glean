@@ -13,8 +13,6 @@ import { LocalFileSource } from '../media/local';
 import { MediaSuggestModal } from '../media/picker';
 import {
 	mergeCueWithNext,
-	nudgeCueEdge,
-	splitCueAtMidpoint,
 	splitCueBeforeWord,
 } from '../media/cue-edit';
 import {
@@ -52,8 +50,6 @@ export interface ListenState {
 }
 
 type DictCellView = DictCell & { span: HTMLElement };
-
-const CUE_NUDGE_SECONDS = 0.2;
 
 /** Apply the latest clause heal/split when opening an already-saved VTT. */
 function refineListenCues(cues: Cue[]): Cue[] {
@@ -345,60 +341,9 @@ export class ListenView extends ItemView {
 		const cuesWrap = side.createDiv({ cls: 'glean-cues-wrap' });
 		const cuesHead = cuesWrap.createDiv({ cls: 'glean-cues-head' });
 		cuesHead.createDiv({ cls: 'glean-cues-label', text: '字幕' });
-		const cueEdit = cuesHead.createDiv({ cls: 'glean-cue-edit' });
-		const mergeBtn = cueEdit.createEl('button', {
-			text: '合并',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: '与下一句合并 (M)' },
-		});
-		mergeBtn.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.mergeActiveWithNext();
-		});
-		const splitBtn = cueEdit.createEl('button', {
-			text: '拆分',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: '在选中的词前拆开；未选词则从中间拆 (S)' },
-		});
-		splitBtn.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.splitActiveCue();
-		});
-		const startMinus = cueEdit.createEl('button', {
-			text: '起−',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: `当前句起点提前 ${CUE_NUDGE_SECONDS}s` },
-		});
-		startMinus.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.nudgeActiveEdge('start', -CUE_NUDGE_SECONDS);
-		});
-		const startPlus = cueEdit.createEl('button', {
-			text: '起+',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: `当前句起点推后 ${CUE_NUDGE_SECONDS}s` },
-		});
-		startPlus.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.nudgeActiveEdge('start', CUE_NUDGE_SECONDS);
-		});
-		const endMinus = cueEdit.createEl('button', {
-			text: '止−',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: `当前句终点提前 ${CUE_NUDGE_SECONDS}s` },
-		});
-		endMinus.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.nudgeActiveEdge('end', -CUE_NUDGE_SECONDS);
-		});
-		const endPlus = cueEdit.createEl('button', {
-			text: '止+',
-			cls: 'glean-btn glean-cue-edit-btn',
-			attr: { title: `当前句终点推后 ${CUE_NUDGE_SECONDS}s` },
-		});
-		endPlus.addEventListener('click', (evt) => {
-			evt.stopPropagation();
-			void this.nudgeActiveEdge('end', CUE_NUDGE_SECONDS);
+		cuesHead.createDiv({
+			cls: 'glean-cue-edit-hint',
+			text: '词间点一下断句 · 行首 ⌫ 并入上一行',
 		});
 		this.cueListEl = cuesWrap.createDiv({ cls: 'glean-cues' });
 		this.renderEmptyCues(
@@ -725,14 +670,49 @@ export class ListenView extends ItemView {
 	}
 
 	private renderCueText(textEl: HTMLElement, cue: Cue): void {
-		this.renderCueTokens(textEl, cue, 'glean-word');
+		this.renderCueTokens(textEl, cue, 'glean-word', true);
+	}
+
+	/** A clickable gap between two words: click to split the cue here. */
+	private appendCutSlot(
+		host: HTMLElement,
+		cueIndex: number,
+		wordIndex: number,
+		gap: string,
+	): void {
+		const slot = host.createSpan({
+			cls: 'glean-cut-slot',
+			text: gap.length > 0 ? gap : ' ',
+			attr: { role: 'button', 'aria-label': '在此断句' },
+		});
+		slot.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.splitCueBefore(cueIndex, wordIndex);
+		});
+	}
+
+	/** A line-start affordance: click to merge this cue into the previous one. */
+	private appendMergeSlot(host: HTMLElement, cueIndex: number): void {
+		const slot = host.createSpan({
+			cls: 'glean-merge-slot',
+			attr: { role: 'button', 'aria-label': '并入上一行', title: '并入上一行' },
+		});
+		slot.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.mergeCueWithPrevious(cueIndex);
+		});
 	}
 
 	/**
 	 * Words stay clickable in every mode as long as the real sentence is on
 	 * screen; a masked sentence is rendered as plain text.
 	 */
-	private renderCueTokens(host: HTMLElement, cue: Cue, cls: string): void {
+	private renderCueTokens(
+		host: HTMLElement,
+		cue: Cue,
+		cls: string,
+		editable = false,
+	): void {
 		host.empty();
 		const shown = this.displayCueText(cue);
 		if (shown !== cue.text) {
@@ -740,9 +720,25 @@ export class ListenView extends ItemView {
 			return;
 		}
 
+		const tokens = [...tokenizeSubtitle(cue.text)];
+		const totalWords = tokens.filter(
+			(token) => token.kind !== 'separator' && token.lookup,
+		).length;
+		if (editable && cue.index > 0) {
+			this.appendMergeSlot(host, cue.index);
+		}
+
 		let wordIndex = 0;
-		for (const token of tokenizeSubtitle(cue.text)) {
-			if (token.kind === 'separator' || !token.lookup) {
+		for (const token of tokens) {
+			if (token.kind === 'separator') {
+				if (editable && wordIndex > 0 && wordIndex < totalWords) {
+					this.appendCutSlot(host, cue.index, wordIndex, token.text);
+				} else {
+					host.appendText(token.text);
+				}
+				continue;
+			}
+			if (!token.lookup) {
 				host.appendText(token.text);
 				continue;
 			}
@@ -1366,32 +1362,21 @@ export class ListenView extends ItemView {
 		this.setActive(cue.index);
 	}
 
-	private mergeActiveWithNext(): Promise<void> {
+	private splitCueBefore(index: number, wordIndex: number): Promise<void> {
 		return this.applyCueEdit(
-			mergeCueWithNext(this.cues, this.activeIndex),
-			'已与下一句合并',
-			'没有下一句可合并',
+			splitCueBeforeWord(this.cues, index, wordIndex),
+			'已拆成两句',
+			'这里断不开',
+			index,
 		);
 	}
 
-	private splitActiveCue(): Promise<void> {
-		const index = this.activeIndex;
-		const selected =
-			this.selectedWord && this.selectedWord.cueIndex === index
-				? this.selectedWord.wordIndex
-				: null;
-		const next =
-			selected !== null && selected > 0
-				? splitCueBeforeWord(this.cues, index, selected)
-				: splitCueAtMidpoint(this.cues, index);
-		return this.applyCueEdit(next, '已拆成两句', '这一句太短，没法拆');
-	}
-
-	private nudgeActiveEdge(edge: 'start' | 'end', delta: number): Promise<void> {
+	private mergeCueWithPrevious(index: number): Promise<void> {
 		return this.applyCueEdit(
-			nudgeCueEdge(this.cues, this.activeIndex, edge, delta),
-			'已调整时间',
-			'没法再调了',
+			mergeCueWithNext(this.cues, index - 1),
+			'已并入上一句',
+			'没有上一句可并',
+			Math.max(0, index - 1),
 		);
 	}
 
@@ -1399,8 +1384,9 @@ export class ListenView extends ItemView {
 		next: Cue[] | null,
 		ok: string,
 		emptyHint: string,
+		focusIndex: number = this.activeIndex,
 	): Promise<void> {
-		if (this.activeIndex < 0) {
+		if (focusIndex < 0) {
 			new Notice('先点一句字幕再编辑');
 			return;
 		}
@@ -1411,11 +1397,9 @@ export class ListenView extends ItemView {
 		this.cues = next;
 		this.closeWordLookup();
 		this.renderCues();
-		const keep = Math.min(this.activeIndex, this.cues.length - 1);
+		const keep = Math.min(Math.max(0, focusIndex), this.cues.length - 1);
 		const cue = this.cues[keep];
 		if (cue) {
-			this.playSentence(cue);
-		} else {
 			this.setActive(keep);
 		}
 		await this.persistEditedCues();
@@ -1485,16 +1469,6 @@ export class ListenView extends ItemView {
 		}
 		if (key === 'Enter' && this.wordPopover.saveCurrent()) {
 			evt.preventDefault();
-			return;
-		}
-		if (key === 'm' || key === 'M') {
-			evt.preventDefault();
-			void this.mergeActiveWithNext();
-			return;
-		}
-		if (key === 's' || key === 'S') {
-			evt.preventDefault();
-			void this.splitActiveCue();
 			return;
 		}
 		if (key === '[') {
