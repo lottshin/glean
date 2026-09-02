@@ -590,9 +590,16 @@ button.glean-btn.glean-btn-primary:disabled {
 	color: var(--glean-muted);
 }
 
-/* A gap between two words: hover shows an insertion caret, click splits here. */
+/*
+ * A gap between two words: hover shows an insertion caret plus a ↵ badge, click
+ * splits here. ↵ mirrors the ⌫ of the merge slot — enter breaks a line, backspace
+ * joins it back. The negative margins widen the hit area without moving any text,
+ * and the badge floats above the line so it never reflows the subtitle.
+ */
 .glean-cut-slot {
 	position: relative;
+	margin: 0 -3px;
+	padding: 0 3px;
 	cursor: text;
 	white-space: pre-wrap;
 	border-radius: 2px;
@@ -611,8 +618,39 @@ button.glean-btn.glean-btn-primary:disabled {
 	transition: transform 0.1s ease;
 }
 
+.glean-cut-slot::after {
+	content: '↵';
+	position: absolute;
+	left: 50%;
+	bottom: calc(100% - 0.25em);
+	z-index: 2;
+	padding: 0 4px;
+	border: 1px solid color-mix(in srgb, var(--glean-accent) 45%, var(--glean-line));
+	border-radius: 4px;
+	background: var(--glean-panel);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 14%);
+	color: var(--glean-accent);
+	font-family: var(--glean-mono);
+	font-size: 10px;
+	line-height: 1.3;
+	white-space: nowrap;
+	pointer-events: none;
+	opacity: 0;
+	transform: translate(-50%, 3px) scale(0.85);
+	transition: opacity 0.1s ease, transform 0.1s ease;
+}
+
+.glean-cut-slot:hover {
+	background: color-mix(in srgb, var(--glean-accent) 14%, transparent);
+}
+
 .glean-cut-slot:hover::before {
 	transform: translateX(-50%) scaleY(1);
+}
+
+.glean-cut-slot:hover::after {
+	opacity: 1;
+	transform: translate(-50%, 0) scale(1);
 }
 
 /* A line-start affordance: hover shows ⌫, click merges into the previous cue. */
@@ -648,6 +686,8 @@ button.glean-btn.glean-btn-primary:disabled {
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
+	/* Top padding keeps the first row's hover badge from being clipped. */
+	padding-top: 6px;
 	padding-bottom: 8px;
 }
 

@@ -683,7 +683,7 @@ export class ListenView extends ItemView {
 		const slot = host.createSpan({
 			cls: 'glean-cut-slot',
 			text: gap.length > 0 ? gap : ' ',
-			attr: { role: 'button', 'aria-label': '在此断句' },
+			attr: { role: 'button', 'aria-label': '在此断句', title: '在此断句' },
 		});
 		slot.addEventListener('click', (evt) => {
 			evt.stopPropagation();
