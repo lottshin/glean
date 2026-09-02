@@ -1,21 +1,73 @@
-import { open, type FileHandle } from 'fs/promises';
+import { loadNodeModule } from '../node-bridge';
+
+interface RandomAccessFile {
+	stat(): Promise<{ size: number }>;
+	read(
+		buffer: Uint8Array,
+		offset: number,
+		length: number,
+		position: number,
+	): Promise<{ bytesRead: number }>;
+	close(): Promise<void>;
+}
 
 type LineResult = {
 	line: string;
 	nextOffset: number;
 };
 
+export interface SortedLineSource {
+	find(key: string): Promise<string | null>;
+	close(): Promise<void>;
+}
+
+export class MemoryTsvFile implements SortedLineSource {
+	private rows: string[];
+
+	constructor(text: string) {
+		this.rows = text.split(/\r?\n/).filter(Boolean);
+	}
+
+	async find(key: string): Promise<string | null> {
+		let low = 0;
+		let high = this.rows.length - 1;
+		while (low <= high) {
+			const middle = (low + high) >> 1;
+			const line = this.rows[middle];
+			if (line === undefined) {
+				return null;
+			}
+			const separator = line.indexOf('\t');
+			const current = separator < 0 ? line : line.slice(0, separator);
+			if (current === key) {
+				return line;
+			}
+			if (current < key) {
+				low = middle + 1;
+			} else {
+				high = middle - 1;
+			}
+		}
+		return null;
+	}
+
+	async close(): Promise<void> {
+		this.rows = [];
+	}
+}
+
 /**
  * Exact lookup for a UTF-8 TSV sorted by its first (ASCII-normalized) column.
  * Only small chunks around binary-search positions are read from disk.
  */
-export class SortedTsvFile {
+export class SortedTsvFile implements SortedLineSource {
 	private constructor(
-		private handle: FileHandle,
+		private handle: RandomAccessFile,
 		private size: number,
 	) {}
 
 	static async open(path: string): Promise<SortedTsvFile> {
+		const { open } = loadNodeModule<typeof import('fs/promises')>('fs/promises');
 		const handle = await open(path, 'r');
 		const stat = await handle.stat();
 		return new SortedTsvFile(handle, stat.size);

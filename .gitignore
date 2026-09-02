@@ -19,6 +19,12 @@ data/
 # They should be uploaded to GitHub releases instead.
 main.js
 
+# Browser extension build output (rebuild with npm run extension:build)
+extension/dist/
+
+# Local grey-release zips
+dist/
+
 # Exclude sourcemaps
 *.map
 

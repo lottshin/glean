@@ -393,6 +393,24 @@ describe('lexicon catalog', () => {
 		catalog.removePath('Glean/Words/a/alpha.md');
 		expect(catalog.get('same')?.path).toBe('Glean/Words/b/beta.md');
 	});
+
+	it('lists each card once instead of repeating alias index entries', () => {
+		const catalog = new LexiconCatalog();
+		catalog.upsert({
+			path: 'Glean/Words/g/go.md',
+			lemma: 'go',
+			forms: ['went', 'going'],
+			status: 'learning',
+		});
+		catalog.upsert({
+			path: 'Glean/Words/r/read.md',
+			lemma: 'read',
+			forms: ['reads'],
+			status: 'known',
+		});
+
+		expect(catalog.list().map((card) => card.lemma)).toEqual(['go', 'read']);
+	});
 });
 
 describe('Glean protocol', () => {
@@ -400,6 +418,18 @@ describe('Glean protocol', () => {
 		expect(parseGleanProtocol({ src: 'Media/TED talk.mp4', t: '12.34' })).toEqual({
 			sourcePath: 'Media/TED talk.mp4',
 			time: 12.34,
+			kind: 'local',
+		});
+	});
+
+	it('recognizes YouTube sources without breaking old local links', () => {
+		expect(
+			parseGleanProtocol({ src: 'youtube:dQw4w9WgXcQ', t: '42' }),
+		).toEqual({
+			sourcePath: 'youtube:dQw4w9WgXcQ',
+			time: 42,
+			kind: 'youtube',
+			videoId: 'dQw4w9WgXcQ',
 		});
 	});
 

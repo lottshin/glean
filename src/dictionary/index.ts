@@ -36,6 +36,13 @@ export class DictionaryService {
 		}
 	}
 
+	static fromText(dictionary: string, inflections: string): DictionaryService {
+		return new DictionaryService(
+			EcdictFile.fromText(dictionary),
+			LemmaFile.fromText(inflections),
+		);
+	}
+
 	async lookup(surface: string): Promise<DictionaryLookup> {
 		const key = normalizeDictionaryKey(surface);
 		const cached = this.cache.get(key);

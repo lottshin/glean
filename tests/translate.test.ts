@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DictionaryEntry, DictionaryLookup } from '../src/dictionary';
 import { glossPassage, isContentWord, MAX_GLOSS_ITEMS } from '../src/translate/gloss';
 import {
+	buildModelsRequest,
 	buildRequest,
 	DEFAULT_OPENAI_ENDPOINT,
+	listOpenAiModels,
+	parseModelsResponse,
 	parseResponse,
 	MAX_TRANSLATION_CHARS,
 	translateText,
@@ -143,7 +146,7 @@ describe('buildRequest', () => {
 		const request = buildRequest(openai, 'hello');
 		expect(request.url).toBe(`${DEFAULT_OPENAI_ENDPOINT}/chat/completions`);
 		expect(request.headers.Authorization).toBe('Bearer sk-test');
-		const body = JSON.parse(request.body) as {
+		const body = JSON.parse(request.body ?? '') as {
 			model: string;
 			messages: { role: string; content: string }[];
 		};
@@ -159,6 +162,17 @@ describe('buildRequest', () => {
 		expect(request.url).toBe('https://proxy.test/v1/chat/completions');
 	});
 
+	it('lists models from the same OpenAI-compatible base url', () => {
+		const request = buildModelsRequest({
+			...openai,
+			endpoint: 'https://proxy.test/v1/',
+		});
+		expect(request.method).toBe('GET');
+		expect(request.url).toBe('https://proxy.test/v1/models');
+		expect(request.headers.Authorization).toBe('Bearer sk-test');
+		expect(request.body).toBeUndefined();
+	});
+
 	it('routes DeepL free keys to the free host', () => {
 		expect(buildRequest(deepl, 'hello').url).toBe(
 			'https://api-free.deepl.com/v2/translate',
@@ -170,7 +184,7 @@ describe('buildRequest', () => {
 
 	it('maps human-readable target names onto DeepL language codes', () => {
 		const target = (config: TranslationConfig) =>
-			(JSON.parse(buildRequest(config, 'hello').body) as { target_lang: string })
+			(JSON.parse(buildRequest(config, 'hello').body ?? '{}') as { target_lang: string })
 				.target_lang;
 		expect(target(deepl)).toBe('ZH');
 		expect(target({ ...deepl, targetLang: '繁体中文' })).toBe('ZH-HANT');
@@ -245,5 +259,41 @@ describe('translateText', () => {
 		await expect(
 			translateText(openai, 'hello', () => new Promise(() => undefined), 20),
 		).rejects.toThrow(/无响应/);
+	});
+});
+
+describe('listOpenAiModels', () => {
+	it('reads OpenAI data[].id and relay models[] shapes', () => {
+		expect(
+			parseModelsResponse({
+				status: 200,
+				text: JSON.stringify({
+					data: [{ id: 'gpt-4o-mini' }, { id: 'deepseek-chat' }, { id: 'gpt-4o-mini' }],
+				}),
+			}),
+		).toEqual(['deepseek-chat', 'gpt-4o-mini']);
+		expect(
+			parseModelsResponse({
+				status: 200,
+				text: JSON.stringify({ models: ['claude-3-5', 'gpt-4o-mini'] }),
+			}),
+		).toEqual(['claude-3-5', 'gpt-4o-mini']);
+	});
+
+	it('does not invent a catalogue when the relay has no list', () => {
+		expect(() => parseModelsResponse({ status: 200, text: '{}' })).toThrow(
+			/没有返回模型列表/,
+		);
+		expect(() =>
+			parseModelsResponse({ status: 404, text: '{"error":"no models"}' }),
+		).toThrow(/404/);
+	});
+
+	it('refuses to probe without a key', async () => {
+		const spy = vi.fn();
+		await expect(listOpenAiModels({ ...openai, apiKey: '' }, spy)).rejects.toThrow(
+			/API key/,
+		);
+		expect(spy).not.toHaveBeenCalled();
 	});
 });

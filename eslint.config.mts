@@ -6,6 +6,8 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
+		'extension/dist',
+		'extension/esbuild.mjs',
 		'dev-probe',
 		'esbuild.config.mjs',
 		'version-bump.mjs',
@@ -32,6 +34,21 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ['extension/src/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.browser,
+				...globals.webextensions,
+			},
+		},
+		rules: {
+			'no-restricted-globals': 'off',
+			'obsidianmd/prefer-create-el': 'off',
+			'obsidianmd/ui/sentence-case': 'off',
+			'obsidianmd/no-global-this': 'off',
+		},
+	},
 	{
 		files: ['tools/*.mjs'],
 		rules: {

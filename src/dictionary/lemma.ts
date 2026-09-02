@@ -1,10 +1,18 @@
-import { SortedTsvFile } from './sorted-tsv';
+import {
+	MemoryTsvFile,
+	SortedTsvFile,
+	type SortedLineSource,
+} from './sorted-tsv';
 
 export class LemmaFile {
-	private constructor(private file: SortedTsvFile) {}
+	private constructor(private file: SortedLineSource) {}
 
 	static async open(path: string): Promise<LemmaFile> {
 		return new LemmaFile(await SortedTsvFile.open(path));
+	}
+
+	static fromText(text: string): LemmaFile {
+		return new LemmaFile(new MemoryTsvFile(text));
 	}
 
 	async lookup(form: string): Promise<string | null> {

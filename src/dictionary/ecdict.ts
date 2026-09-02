@@ -1,4 +1,8 @@
-import { SortedTsvFile } from './sorted-tsv';
+import {
+	MemoryTsvFile,
+	SortedTsvFile,
+	type SortedLineSource,
+} from './sorted-tsv';
 import type { DictionaryEntry } from './types';
 
 function optionalNumber(value: string | undefined): number | null {
@@ -10,10 +14,14 @@ function optionalNumber(value: string | undefined): number | null {
 }
 
 export class EcdictFile {
-	private constructor(private file: SortedTsvFile) {}
+	private constructor(private file: SortedLineSource) {}
 
 	static async open(path: string): Promise<EcdictFile> {
 		return new EcdictFile(await SortedTsvFile.open(path));
+	}
+
+	static fromText(text: string): EcdictFile {
+		return new EcdictFile(new MemoryTsvFile(text));
 	}
 
 	async lookup(key: string): Promise<DictionaryEntry | null> {

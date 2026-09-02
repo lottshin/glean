@@ -1,0 +1,41 @@
+{
+	"manifest_version": 3,
+	"name": "Glean YouTube Capture",
+	"version": "0.0.1",
+	"description": "Capture YouTube captions and sync them to the Glean Obsidian plugin.",
+	"action": {
+		"default_title": "Glean",
+		"default_popup": "popup.html"
+	},
+	"permissions": ["storage", "activeTab", "scripting"],
+	"host_permissions": [
+		"https://www.youtube.com/*",
+		"https://youtube.com/*",
+		"https://m.youtube.com/*",
+		"https://youtu.be/*",
+		"http://127.0.0.1/*",
+		"http://localhost/*"
+	],
+	"background": {
+		"service_worker": "background.js",
+		"type": "module"
+	},
+	"web_accessible_resources": [
+		{
+			"resources": ["page-bridge.js"],
+			"matches": ["https://www.youtube.com/*", "https://youtube.com/*", "https://m.youtube.com/*"]
+		}
+	],
+	"content_scripts": [
+		{
+			"matches": [
+				"https://www.youtube.com/*",
+				"https://youtube.com/*",
+				"https://m.youtube.com/*"
+			],
+			"js": ["content.js"],
+			"css": ["content.css"],
+			"run_at": "document_idle"
+		}
+	]
+}

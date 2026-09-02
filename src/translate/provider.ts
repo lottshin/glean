@@ -11,9 +11,9 @@ export interface TranslationConfig {
 
 export interface TranslationRequest {
 	url: string;
-	method: 'POST';
+	method: 'GET' | 'POST';
 	headers: Record<string, string>;
-	body: string;
+	body?: string;
 }
 
 export interface TranslationResponse {
@@ -55,9 +55,8 @@ export function buildRequest(
 		};
 	}
 
-	const base = (config.endpoint.trim() || DEFAULT_OPENAI_ENDPOINT).replace(/\/+$/, '');
 	return {
-		url: `${base}/chat/completions`,
+		url: `${openaiBaseUrl(config.endpoint)}/chat/completions`,
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${config.apiKey}`,
@@ -134,6 +133,61 @@ export async function translateText(
 	);
 }
 
+export function openaiBaseUrl(endpoint: string): string {
+	return (endpoint.trim() || DEFAULT_OPENAI_ENDPOINT).replace(/\/+$/, '');
+}
+
+/** Relays expose whatever they host; we never invent a catalogue of our own. */
+export function buildModelsRequest(config: TranslationConfig): TranslationRequest {
+	if (!config.apiKey.trim()) {
+		throw new TranslationError('缺少 API key，请在 Glean 设置中填写');
+	}
+	return {
+		url: `${openaiBaseUrl(config.endpoint)}/models`,
+		method: 'GET',
+		headers: {
+			Authorization: `Bearer ${config.apiKey}`,
+		},
+	};
+}
+
+export function parseModelsResponse(response: TranslationResponse): string[] {
+	if (response.status < 200 || response.status >= 300) {
+		throw new TranslationError(
+			`翻译服务返回 ${response.status}：${briefError(response.text)}`,
+		);
+	}
+	let payload: unknown;
+	try {
+		payload = JSON.parse(response.text);
+	} catch {
+		throw new TranslationError('翻译服务返回了无法解析的内容');
+	}
+	const ids = modelIds(payload);
+	if (ids.length === 0) {
+		throw new TranslationError(
+			'接口没有返回模型列表。请向中转站确认地址是否带 /v1，或手动填写模型名。',
+		);
+	}
+	return ids;
+}
+
+export async function listOpenAiModels(
+	config: TranslationConfig,
+	transport: TranslationTransport,
+	timeoutMs?: number,
+): Promise<string[]> {
+	if (!config.apiKey.trim()) {
+		throw new TranslationError('缺少 API key，请在 Glean 设置中填写');
+	}
+	return parseModelsResponse(
+		await withTimeout(
+			transport(buildModelsRequest(config)),
+			timeoutMs ?? TRANSLATION_TIMEOUT_MS,
+		),
+	);
+}
+
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	let timer: ReturnType<typeof setTimeout>;
 	const expiry = new Promise<never>((_resolve, reject) => {
@@ -196,6 +250,42 @@ function firstItem(payload: unknown, key: string): unknown {
 function deeplText(payload: unknown): string {
 	const first = firstItem(payload, 'translations');
 	return isRecord(first) && typeof first.text === 'string' ? first.text : '';
+}
+
+function appendUnknownList(target: unknown[], value: unknown): void {
+	if (!Array.isArray(value)) {
+		return;
+	}
+	for (const item of value) {
+		target.push(item);
+	}
+}
+
+function modelIds(payload: unknown): string[] {
+	const rows: unknown[] = [];
+	if (Array.isArray(payload)) {
+		appendUnknownList(rows, payload);
+	} else if (isRecord(payload)) {
+		for (const key of ['data', 'models']) {
+			appendUnknownList(rows, payload[key]);
+		}
+	}
+	const seen = new Set<string>();
+	const ids: string[] = [];
+	for (const row of rows) {
+		const id =
+			typeof row === 'string'
+				? row.trim()
+				: isRecord(row) && typeof row.id === 'string'
+					? row.id.trim()
+					: '';
+		if (!id || seen.has(id)) {
+			continue;
+		}
+		seen.add(id);
+		ids.push(id);
+	}
+	return ids.sort((left, right) => left.localeCompare(right));
 }
 
 function openaiText(payload: unknown): string {

@@ -1,6 +1,10 @@
+import { parseYouTubeSourcePath } from '../youtube/id';
+
 export interface GleanProtocolTarget {
 	sourcePath: string;
 	time: number;
+	kind: 'local' | 'youtube';
+	videoId?: string;
 }
 
 export function parseGleanProtocol(parameters: Record<string, string>): GleanProtocolTarget | null {
@@ -9,5 +13,8 @@ export function parseGleanProtocol(parameters: Record<string, string>): GleanPro
 	if (!sourcePath || !Number.isFinite(time) || time < 0) {
 		return null;
 	}
-	return { sourcePath, time };
+	const videoId = parseYouTubeSourcePath(sourcePath);
+	return videoId
+		? { sourcePath, time, kind: 'youtube', videoId }
+		: { sourcePath, time, kind: 'local' };
 }

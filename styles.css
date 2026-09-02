@@ -1,4 +1,10 @@
-.glean-listen {
+/* Tokens live on every surface the plugin owns, not just the listening view.
+   The word popover mounts on document.body, so scoping these to .glean-listen
+   left its var() references undefined and silently reset to initial values. */
+.glean-listen,
+.glean-word-popover,
+.glean-passage-panel,
+.glean-lexicon-view {
 	--glean-stage: #101118;
 	--glean-stage-fg: #ececf1;
 	--glean-ink: var(--text-normal);
@@ -11,7 +17,9 @@
 	--glean-bad: var(--text-error, #d94848);
 	--glean-radius: 10px;
 	--glean-mono: var(--font-monospace);
+}
 
+.glean-listen {
 	display: flex;
 	flex-direction: column;
 	height: 100%;
@@ -51,12 +59,16 @@
 	min-width: 0;
 }
 
-.glean-btn,
+/* `button:not(.clickable-icon)` in Obsidian's stylesheet is (0,1,1), so a bare
+   class cannot set the background here. Every button rule below matches the
+   element too in order to win. */
+button.glean-btn,
 .glean-rate {
 	appearance: none;
 	margin: 0;
 	border: none;
-	background: transparent;
+	background-color: transparent;
+	box-shadow: none;
 	color: var(--glean-ink);
 	font-size: 12px;
 	font-weight: 550;
@@ -67,8 +79,9 @@
 	transition: background 0.15s ease, color 0.15s ease, filter 0.15s ease;
 }
 
-.glean-btn:hover {
-	background: color-mix(in srgb, var(--glean-accent) 14%, transparent);
+button.glean-btn:hover {
+	background-color: color-mix(in srgb, var(--glean-accent) 14%, transparent);
+	box-shadow: none;
 }
 
 .glean-btn:focus-visible,
@@ -78,15 +91,20 @@
 	outline-offset: 1px;
 }
 
-.glean-btn-primary {
-	background: var(--glean-accent);
+button.glean-btn.glean-btn-primary {
+	background-color: var(--glean-accent);
 	color: var(--text-on-accent, #fff);
 }
 
-.glean-btn-primary:hover {
+button.glean-btn.glean-btn-primary:hover {
 	filter: brightness(1.06);
-	background: var(--glean-accent);
+	background-color: var(--glean-accent);
 	color: var(--text-on-accent, #fff);
+}
+
+button.glean-btn.glean-btn-primary:disabled {
+	filter: none;
+	opacity: 0.55;
 }
 
 .glean-btn.is-active-mode {
@@ -157,6 +175,29 @@
 	position: relative;
 }
 
+.glean-media-host {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-width: 0;
+}
+
+.glean-listen.is-youtube .glean-player-pane {
+	width: 100%;
+	min-height: 200px;
+}
+
+.glean-listen.is-youtube .glean-media-host,
+.glean-youtube-player,
+.glean-youtube-player iframe {
+	width: 100%;
+	height: min(40vh, 380px);
+	min-height: 200px;
+	aspect-ratio: 16 / 9;
+	border: 0;
+}
+
 /* 听写模式遮挡画面，防止烧录字幕泄题；声音仍由 video 播放 */
 .glean-video-veil {
 	display: none;
@@ -174,7 +215,7 @@
 	pointer-events: none;
 }
 
-.glean-listen.is-dictation.has-media:not(.is-audio) .glean-video-veil {
+.glean-listen.is-dictation.has-media:not(.is-audio):not(.is-youtube) .glean-video-veil {
 	display: flex;
 }
 
@@ -746,9 +787,14 @@
 	margin-right: auto;
 }
 
-.glean-word-popover-open,
-.glean-word-popover-remove {
+button.glean-word-popover-open,
+button.glean-word-popover-remove {
 	color: var(--text-muted);
+}
+
+button.glean-word-popover-remove:hover {
+	background-color: var(--background-modifier-error-hover);
+	color: var(--text-error);
 }
 
 .glean-word-popover-save {
@@ -1021,11 +1067,335 @@
 	color: var(--text-muted);
 }
 
+/* Obsidian styles buttons and inputs with `button:not(.clickable-icon)` and
+   similar (0,1,1) selectors, so every control below is scoped to the view to
+   win on specificity. Without the extra class the native chrome bleeds back in. */
+.glean-lexicon-view {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	height: 100%;
+	min-height: 0;
+	padding: 14px 12px 12px;
+	overflow: hidden;
+	background: var(--background-primary);
+}
+
+.glean-lexicon-header {
+	display: flex;
+	align-items: baseline;
+	gap: 7px;
+	min-width: 0;
+}
+
+.glean-lexicon-header h2 {
+	margin: 0;
+	color: var(--text-normal);
+	font-size: 16px;
+	font-weight: 650;
+	line-height: 1.2;
+}
+
+.glean-lexicon-summary {
+	color: var(--text-faint);
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.glean-lexicon-view .glean-lexicon-search {
+	width: 100%;
+	height: 30px;
+	margin: 0;
+	padding: 0 9px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-primary-alt);
+	box-shadow: none;
+	color: var(--text-normal);
+	font-size: 13px;
+}
+
+.glean-lexicon-view .glean-lexicon-search::placeholder {
+	color: var(--text-faint);
+}
+
+.glean-lexicon-view .glean-lexicon-search:focus-visible,
+.glean-lexicon-view .glean-lexicon-filter:focus-visible,
+.glean-lexicon-view .glean-lexicon-main:focus-visible,
+.glean-lexicon-view .glean-lexicon-source:focus-visible,
+.glean-lexicon-view .glean-lexicon-more:focus-visible,
+.glean-lexicon-view .glean-lexicon-status:focus-visible,
+.glean-lexicon-view .glean-lexicon-remove:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.glean-lexicon-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.glean-lexicon-view .glean-lexicon-filter {
+	min-width: 0;
+	height: 22px;
+	margin: 0;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: 11px;
+	line-height: 22px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.glean-lexicon-view .glean-lexicon-filter:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.glean-lexicon-view .glean-lexicon-filter.is-active {
+	background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+	color: var(--text-accent);
+	font-weight: 600;
+}
+
+.glean-lexicon-count {
+	margin-left: 4px;
+	opacity: 0.65;
+	font-variant-numeric: tabular-nums;
+}
+
+.glean-lexicon-list {
+	flex: 1 1 auto;
+	min-height: 0;
+	margin: 0 -6px;
+	padding: 0 6px 12px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.glean-lexicon-item {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 1px 6px;
+	margin: 0 -6px;
+	padding: 7px 6px;
+	border-radius: 6px;
+}
+
+.glean-lexicon-item:hover,
+.glean-lexicon-item:focus-within {
+	background: var(--background-modifier-hover);
+}
+
+.glean-lexicon-view .glean-lexicon-main {
+	display: block;
+	grid-row: 1;
+	grid-column: 1;
+	width: 100%;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+	font-size: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.glean-lexicon-main:hover .glean-lexicon-lemma {
+	color: var(--text-accent);
+}
+
+.glean-lexicon-word-line {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+}
+
+.glean-lexicon-lemma {
+	overflow: hidden;
+	color: var(--text-normal);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.glean-lexicon-phonetic {
+	flex: 0 1 auto;
+	overflow: hidden;
+	color: var(--text-faint);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.glean-lexicon-detail {
+	overflow: hidden;
+	color: var(--text-faint);
+	font-size: 11px;
+	line-height: 1.4;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.glean-lexicon-controls {
+	display: flex;
+	grid-row: 1;
+	grid-column: 2;
+	align-items: center;
+	gap: 2px;
+}
+
+.glean-lexicon-view .glean-lexicon-status {
+	width: auto;
+	height: 22px;
+	margin: 0;
+	padding: 0 2px 0 6px;
+	border: 0;
+	border-radius: 5px;
+	background-color: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.glean-lexicon-view .glean-lexicon-status:hover {
+	background-color: var(--background-modifier-border);
+	color: var(--text-normal);
+}
+
+.glean-lexicon-view .glean-lexicon-status.is-learning {
+	color: var(--text-accent);
+}
+
+.glean-lexicon-view .glean-lexicon-status.is-ignored {
+	color: var(--text-faint);
+}
+
+.glean-lexicon-view .glean-lexicon-remove {
+	width: 24px;
+	height: 24px;
+	margin: 0;
+	padding: 4px;
+	color: var(--text-faint);
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.glean-lexicon-item:hover .glean-lexicon-remove,
+.glean-lexicon-item:focus-within .glean-lexicon-remove {
+	opacity: 1;
+}
+
+.glean-lexicon-view .glean-lexicon-remove:hover {
+	background: var(--background-modifier-error-hover);
+	color: var(--text-error);
+}
+
+/* Pointer-less devices never fire hover, so the control must stay visible. */
+@media (hover: none) {
+	.glean-lexicon-view .glean-lexicon-remove {
+		opacity: 1;
+	}
+}
+
+.glean-lexicon-view .glean-lexicon-source {
+	display: flex;
+	grid-row: 2;
+	grid-column: 1 / -1;
+	align-items: center;
+	gap: 4px;
+	justify-self: start;
+	max-width: 100%;
+	height: 18px;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-faint);
+	font-size: 11px;
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.glean-lexicon-view .glean-lexicon-source:hover {
+	background: transparent;
+	color: var(--text-accent);
+}
+
+.glean-lexicon-view .glean-lexicon-source:hover .glean-lexicon-source-icon {
+	color: var(--text-accent);
+}
+
+.glean-lexicon-source-icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+.glean-lexicon-source-icon svg {
+	width: 12px;
+	height: 12px;
+}
+
+.glean-lexicon-empty {
+	padding: 40px 16px;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	text-align: center;
+}
+
+.glean-lexicon-empty-title {
+	margin-bottom: 4px;
+	color: var(--text-normal);
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.glean-lexicon-view .glean-lexicon-more {
+	display: block;
+	width: 100%;
+	margin: 10px 0 0;
+	padding: 6px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.glean-lexicon-view .glean-lexicon-more:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.glean-btn,
 	.glean-dict-cell,
 	.glean-cue,
-	.glean-word {
+	.glean-word,
+	.glean-lexicon-view .glean-lexicon-remove {
 		transition: none;
 	}
 }

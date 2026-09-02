@@ -1,7 +1,21 @@
-import { existsSync } from 'fs';
-import { dirname, isAbsolute, join } from 'path';
-import { FileSystemAdapter, Menu, Notice, Plugin, TFile, requestUrl } from 'obsidian';
+import {
+	Menu,
+	Notice,
+	normalizePath,
+	Platform,
+	Plugin,
+	TFile,
+	requestUrl,
+} from 'obsidian';
+import { bundledDictionary } from 'glean:dictionary-package';
 import { DictionaryService, type DictionaryLookup } from './dictionary';
+import { installBundledDictionary } from './dictionary/install';
+import {
+	createReceiverToken,
+	notifyImportSuccess,
+	YouTubeImportReceiver,
+} from './import/receiver';
+import type { LexiconCard } from './lexicon/catalog';
 import { LexiconMigrationModal } from './lexicon/migration-modal';
 import { registerWordNoteChrome } from './lexicon/note-chrome';
 import type { WordStatus } from './lexicon/note';
@@ -15,36 +29,71 @@ import { DEFAULT_SETTINGS, GleanSettingTab, type GleanSettings } from './setting
 import { MEDIA_EXTENSIONS } from './media/types';
 import { LISTEN_VIEW_TYPE, ListenView, type ListenState } from './views/listen';
 import { READ_ICON, ReadingMode } from './read/session';
-import { TranslationError, translateText } from './translate/provider';
+import {
+	TranslationError,
+	listOpenAiModels,
+	translateText,
+	type TranslationRequest,
+	type TranslationResponse,
+} from './translate/provider';
+import {
+	LEXICON_VIEW_TYPE,
+	LexiconView,
+} from './views/lexicon';
+import { parseYouTubeSourcePath } from './youtube/id';
 
 export default class GleanPlugin extends Plugin {
 	settings!: GleanSettings;
 	dictionaryReady = false;
 	dictionaryError: string | null = null;
+	dictionaryInstalling = false;
+	readonly hasBundledDictionary = bundledDictionary !== null;
 	private dictionary: DictionaryService | null = null;
 	private dictionaryGeneration = 0;
+	private bundledInstallAttempted = false;
 	private lexicon!: LexiconStore;
 	private lexiconRebuildTimer: number | null = null;
 	private reading!: ReadingMode;
 	private layoutNoticeShown = false;
+	private youtubeReceiver: YouTubeImportReceiver | null = null;
+	private lastYouTubeImport: {
+		videoId: string;
+		title: string;
+		notePath: string;
+		subtitlePath: string;
+	} | null = null;
 
 	async onload() {
 		await this.loadSettings();
+		if (!this.settings.youtubeReceiverToken) {
+			this.settings.youtubeReceiverToken = createReceiverToken();
+			await this.saveSettings();
+		}
 		this.lexicon = new LexiconStore(this.app, () => this.settings.wordsFolder);
 		this.lexicon.observe(this);
 		this.reading = new ReadingMode(this);
 		this.reading.observe();
 
 		this.registerView(LISTEN_VIEW_TYPE, (leaf) => new ListenView(leaf, this));
+		this.registerView(LEXICON_VIEW_TYPE, (leaf) => new LexiconView(leaf, this));
 
 		void this.reloadDictionary();
+		void this.refreshYouTubeReceiver();
 
-		// One plugin, one ribbon slot. Listening and reading are co-equal, so
-		// the icon opens a menu instead of privileging either one.
+		// Ribbon stays a hub menu. Context-aware entry (YouTube → listen,
+		// article → read) belongs on the note header wheat, not here.
 		this.addRibbonIcon('wheat', 'Glean', (event) => {
 			const file = this.app.workspace.getActiveFile();
-			const reading = this.reading.canEnable(file) && this.reading.isEnabled(file.path);
 			const menu = new Menu();
+			menu.addItem((item) =>
+				item
+					.setTitle('生词库')
+					.setIcon('library')
+					.onClick(() => {
+						void this.activateLexiconView();
+					}),
+			);
+			menu.addSeparator();
 			menu.addItem((item) =>
 				item
 					.setTitle('精听')
@@ -55,7 +104,7 @@ export default class GleanPlugin extends Plugin {
 			);
 			menu.addItem((item) =>
 				item
-					.setTitle(reading ? '退出阅读' : '阅读当前笔记')
+					.setTitle('阅读当前笔记')
 					.setIcon(READ_ICON)
 					.setDisabled(!this.reading.canEnable(file))
 					.onClick(() => {
@@ -66,10 +115,57 @@ export default class GleanPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'open-lexicon',
+			name: '打开生词库',
+			callback: () => {
+				void this.activateLexiconView();
+			},
+		});
+
+		this.addCommand({
 			id: 'open-listen',
 			name: '打开精听视图',
 			callback: () => {
 				void this.activateListenView();
+			},
+		});
+
+		this.addCommand({
+			id: 'open-last-youtube-import',
+			name: '打开刚同步的 YouTube 视频',
+			checkCallback: (checking) => {
+				if (!this.lastYouTubeImport) {
+					return false;
+				}
+				if (!checking) {
+					void this.openYouTube(
+						this.lastYouTubeImport.videoId,
+						this.lastYouTubeImport.subtitlePath,
+						this.lastYouTubeImport.title,
+					);
+				}
+				return true;
+			},
+		});
+
+		this.addCommand({
+			id: 'listen-current-youtube-note',
+			name: '精听当前 YouTube 笔记',
+			checkCallback: (checking) => {
+				const session = this.youtubeSessionFromFile(
+					this.app.workspace.getActiveFile(),
+				);
+				if (!session) {
+					return false;
+				}
+				if (!checking) {
+					void this.openYouTube(
+						session.videoId,
+						session.subtitlePath,
+						session.title,
+					);
+				}
+				return true;
 			},
 		});
 
@@ -173,13 +269,28 @@ export default class GleanPlugin extends Plugin {
 							});
 					});
 				} else if (file.extension.toLowerCase() === 'md') {
-					menu.addItem((item) => {
-						item.setTitle('Glean: 阅读')
-							.setIcon(READ_ICON)
-							.onClick(() => {
-								void this.reading.toggle(file);
-							});
-					});
+					const youtube = this.getYouTubeSession(file);
+					if (youtube) {
+						menu.addItem((item) => {
+							item.setTitle('Glean: 精听')
+								.setIcon('headphones')
+								.onClick(() => {
+									void this.openYouTube(
+										youtube.videoId,
+										youtube.subtitlePath,
+										youtube.title,
+									);
+								});
+						});
+					} else {
+						menu.addItem((item) => {
+							item.setTitle('Glean: 阅读')
+								.setIcon(READ_ICON)
+								.onClick(() => {
+									void this.reading.toggle(file);
+								});
+						});
+					}
 				}
 			}),
 		);
@@ -198,6 +309,8 @@ export default class GleanPlugin extends Plugin {
 
 	onunload() {
 		this.reading?.destroy();
+		void this.youtubeReceiver?.stop();
+		this.youtubeReceiver = null;
 		if (this.lexiconRebuildTimer !== null) {
 			window.clearTimeout(this.lexiconRebuildTimer);
 			this.lexiconRebuildTimer = null;
@@ -229,34 +342,91 @@ export default class GleanPlugin extends Plugin {
 	 */
 	async translatePassage(text: string): Promise<string> {
 		return translateText(
-			{
-				enabled: this.settings.translateEnabled,
-				provider: this.settings.translateProvider,
-				apiKey: this.settings.translateApiKey,
-				endpoint: this.settings.translateEndpoint,
-				model: this.settings.translateModel,
-				targetLang: this.settings.translateTarget,
-			},
+			this.translationConfig(),
 			text,
-			async (request) => {
-				try {
-					const response = await requestUrl({
-						url: request.url,
-						method: request.method,
-						headers: request.headers,
-						body: request.body,
-						throw: false,
-					});
-					return { status: response.status, text: response.text };
-				} catch {
-					throw new TranslationError(`无法连接翻译服务：${request.url}`);
-				}
-			},
+			this.translationTransport(),
 		);
+	}
+
+	async listTranslationModels(): Promise<string[]> {
+		return listOpenAiModels(this.translationConfig(), this.translationTransport());
+	}
+
+	async refreshYouTubeReceiver(): Promise<void> {
+		if (!Platform.isDesktopApp || !this.settings.youtubeReceiverEnabled) {
+			await this.youtubeReceiver?.stop();
+			this.youtubeReceiver = null;
+			return;
+		}
+		const options = {
+			port: this.settings.youtubeReceiverPort,
+			token: this.settings.youtubeReceiverToken,
+			folder: this.settings.youtubeFolder,
+			onImported: (result: {
+				videoId: string;
+				title: string;
+				notePath: string;
+				subtitlePath: string;
+			}) => {
+				this.lastYouTubeImport = result;
+				notifyImportSuccess(result.title, result.notePath);
+			},
+		};
+		try {
+			if (this.youtubeReceiver) {
+				await this.youtubeReceiver.restart(options);
+			} else {
+				this.youtubeReceiver = new YouTubeImportReceiver(this.app, options);
+				await this.youtubeReceiver.start();
+			}
+		} catch (error) {
+			this.youtubeReceiver = null;
+			new Notice(
+				error instanceof Error
+					? `YouTube 接收端启动失败：${error.message}`
+					: 'YouTube 接收端启动失败',
+			);
+		}
+	}
+
+	isYouTubeReceiverRunning(): boolean {
+		return this.youtubeReceiver?.running === true;
+	}
+
+	private translationConfig() {
+		return {
+			enabled: this.settings.translateEnabled,
+			provider: this.settings.translateProvider,
+			apiKey: this.settings.translateApiKey,
+			endpoint: this.settings.translateEndpoint,
+			model: this.settings.translateModel,
+			targetLang: this.settings.translateTarget,
+		};
+	}
+
+	private translationTransport() {
+		return async (request: TranslationRequest): Promise<TranslationResponse> => {
+			try {
+				const response = await requestUrl({
+					url: request.url,
+					method: request.method,
+					headers: request.headers,
+					body: request.body,
+					throw: false,
+				});
+				return { status: response.status, text: response.text };
+			} catch {
+				throw new TranslationError(`无法连接翻译服务：${request.url}`);
+			}
+		};
 	}
 
 	async removeWord(word: string): Promise<boolean> {
 		return this.lexicon.remove(word);
+	}
+
+	listLexiconCards(): LexiconCard[] {
+		return this.lexicon.list();
 	}
 
 	async setWordStatus(word: string, status: WordStatus): Promise<boolean> {
@@ -291,6 +461,40 @@ export default class GleanPlugin extends Plugin {
 		return true;
 	}
 
+	async openLexiconSource(sourcePath: string, originPath: string): Promise<boolean> {
+		const youtubeId = parseYouTubeSourcePath(sourcePath);
+		if (youtubeId) {
+			const session = this.findYouTubeSession(youtubeId);
+			if (!session) {
+				new Notice(`找不到 YouTube 会话：${youtubeId}`);
+				return false;
+			}
+			await this.openYouTube(
+				session.videoId,
+				session.subtitlePath,
+				session.title,
+			);
+			return true;
+		}
+		const exact = this.app.vault.getAbstractFileByPath(sourcePath);
+		const file =
+			exact instanceof TFile
+				? exact
+				: this.app.metadataCache.getFirstLinkpathDest(sourcePath, originPath);
+		if (!(file instanceof TFile)) {
+			new Notice(`找不到来源：${sourcePath}`);
+			return false;
+		}
+		if (MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
+			await this.openVideo(file);
+			return true;
+		}
+		const leaf = this.app.workspace.getLeaf('tab');
+		await leaf.openFile(file);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
+		return true;
+	}
+
 	findLexiconCard(word: string) {
 		return this.lexicon.find(word);
 	}
@@ -322,7 +526,7 @@ export default class GleanPlugin extends Plugin {
 		new Notice('发现旧版生词目录，请运行“Glean: 整理生词目录”完成整理。');
 	}
 
-	async reloadDictionary(): Promise<void> {
+	async reloadDictionary(allowBundledInstall = true): Promise<void> {
 		const generation = ++this.dictionaryGeneration;
 		const previousError = this.dictionaryError;
 		const previous = this.dictionary;
@@ -338,7 +542,12 @@ export default class GleanPlugin extends Plugin {
 			if (!paths) {
 				return;
 			}
-			const dictionary = await DictionaryService.open(paths.dictionary, paths.inflections);
+			const dictionary = paths.external
+				? await DictionaryService.open(paths.dictionary, paths.inflections)
+				: DictionaryService.fromText(
+						await this.app.vault.adapter.read(paths.dictionary),
+						await this.app.vault.adapter.read(paths.inflections),
+					);
 			if (generation !== this.dictionaryGeneration) {
 				await dictionary.close();
 				return;
@@ -349,14 +558,22 @@ export default class GleanPlugin extends Plugin {
 			if (generation === this.dictionaryGeneration) {
 				this.dictionary = null;
 				this.dictionaryReady = false;
+				if (
+					allowBundledInstall &&
+					!this.bundledInstallAttempted &&
+					!this.settings.dictionaryPath.trim() &&
+					bundledDictionary
+				) {
+					this.bundledInstallAttempted = true;
+					await this.installDictionary(true);
+					return;
+				}
 				if (paths) {
-					const directory = dirname(paths.dictionary);
 					this.dictionaryError =
-						`词典加载失败：${directory}。请确认两个 TSV 文件完整且可读。`;
+						`词典加载失败：${paths.directory}。请确认两个 TSV 文件完整且可读。`;
 					if (
 						previousError !== this.dictionaryError &&
-						(Boolean(this.settings.dictionaryPath.trim()) ||
-							existsSync(directory))
+						Boolean(this.settings.dictionaryPath.trim())
 					) {
 						new Notice(this.dictionaryError);
 					}
@@ -369,25 +586,90 @@ export default class GleanPlugin extends Plugin {
 		}
 	}
 
-	private getDictionaryPaths(): { dictionary: string; inflections: string } | null {
-		const adapter = this.app.vault.adapter;
-		if (!(adapter instanceof FileSystemAdapter)) {
+	async installDictionary(automatic = false): Promise<boolean> {
+		if (!bundledDictionary || this.dictionaryInstalling) {
+			return false;
+		}
+		const paths = this.getDictionaryPaths();
+		if (!paths) {
+			this.dictionaryError = '当前 vault 不支持安装本地词典。';
+			return false;
+		}
+		this.dictionaryInstalling = true;
+		this.dictionaryError = null;
+		const notice = new Notice(
+			automatic ? 'Glean 正在准备离线词典…' : '正在安装 Glean 离线词典…',
+			0,
+		);
+		try {
+			if (paths.external) {
+				await installBundledDictionary(paths.directory, bundledDictionary);
+			} else {
+				await installBundledDictionary(
+					{
+						adapter: this.app.vault.adapter,
+						directory: paths.directory,
+					},
+					bundledDictionary,
+				);
+			}
+			await this.reloadDictionary(false);
+			if (!this.dictionaryReady) {
+				throw new Error(this.dictionaryError ?? '词典加载失败');
+			}
+			notice.setMessage('Glean 离线词典已安装');
+			window.setTimeout(() => notice.hide(), 2500);
+			return true;
+		} catch (error) {
+			this.dictionaryError =
+				error instanceof Error ? error.message : '离线词典安装失败';
+			notice.setMessage(this.dictionaryError);
+			window.setTimeout(() => notice.hide(), 5000);
+			return false;
+		} finally {
+			this.dictionaryInstalling = false;
+		}
+	}
+
+	private getDictionaryPaths(): {
+		dictionary: string;
+		inflections: string;
+		directory: string;
+		external: boolean;
+	} | null {
+		const configured = this.settings.dictionaryPath.trim();
+		const isExternalPath =
+			configured.startsWith('/') || /^[A-Za-z]:[\\/]/.test(configured);
+		if (!Platform.isDesktopApp && isExternalPath) {
 			return null;
 		}
-		const vaultPath = adapter.getBasePath();
-		const configured = this.settings.dictionaryPath.trim();
-		const directory = configured
-			? isAbsolute(configured)
-				? configured
-				: join(vaultPath, configured)
-			: join(vaultPath, this.app.vault.configDir, 'glean', 'dict');
+		const relativeDirectory = normalizePath(
+			configured || `${this.app.vault.configDir}/glean/dict`,
+		);
+		const adapter = this.app.vault.adapter as unknown as {
+			getBasePath?: () => string;
+		};
+		const basePath =
+			Platform.isDesktopApp && typeof adapter.getBasePath === 'function'
+				? adapter.getBasePath()
+				: null;
+		const external = Platform.isDesktopApp && (isExternalPath || basePath !== null);
+		const directory = isExternalPath
+			? configured.replace(/[\\/]+$/, '')
+			: basePath
+				? `${basePath.replace(/[\\/]+$/, '')}/${relativeDirectory}`
+				: relativeDirectory;
+		const separator = external && directory.includes('\\') ? '\\' : '/';
 		return {
-			dictionary: join(directory, 'glean-dict-v1.tsv'),
-			inflections: join(directory, 'glean-inflect-v1.tsv'),
+			directory,
+			external,
+			dictionary: `${directory}${separator}glean-dict-v1.tsv`,
+			inflections: `${directory}${separator}glean-inflect-v1.tsv`,
 		};
 	}
 
 	async activateListenView(state?: ListenState): Promise<ListenView | null> {
+		const resolved = state ?? this.listenStateFromContext();
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(LISTEN_VIEW_TYPE)[0];
 		if (!leaf) {
@@ -396,17 +678,71 @@ export default class GleanPlugin extends Plugin {
 		await leaf.setViewState({
 			type: LISTEN_VIEW_TYPE,
 			active: true,
-			state: (state ?? {}) as Record<string, unknown>,
+			state: (resolved ?? {}) as Record<string, unknown>,
 		});
+		workspace.revealLeaf(leaf);
 		workspace.setActiveLeaf(leaf, { focus: true });
 
 		const view = leaf.view;
 		if (!(view instanceof ListenView)) {
 			return null;
 		}
-		if (state) {
-			await view.openMedia(state);
+		if (resolved) {
+			await view.openMedia(resolved);
 		}
+		return view;
+	}
+
+	/** Prefer the active YouTube note, then the latest import, then a local media file. */
+	private listenStateFromContext(): ListenState | undefined {
+		const session = this.youtubeSessionFromFile(this.app.workspace.getActiveFile());
+		if (session) {
+			return {
+				kind: 'youtube',
+				videoId: session.videoId,
+				title: session.title,
+				subtitlePath: session.subtitlePath,
+			};
+		}
+		if (this.lastYouTubeImport) {
+			return {
+				kind: 'youtube',
+				videoId: this.lastYouTubeImport.videoId,
+				title: this.lastYouTubeImport.title,
+				subtitlePath: this.lastYouTubeImport.subtitlePath,
+			};
+		}
+		const file = this.app.workspace.getActiveFile();
+		if (file && MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
+			return {
+				videoPath: file.path,
+				subtitlePath: null,
+			};
+		}
+		return undefined;
+	}
+
+	async activateLexiconView(): Promise<LexiconView | null> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(LEXICON_VIEW_TYPE)[0];
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf('tab');
+			await leaf.setViewState({
+				type: LEXICON_VIEW_TYPE,
+				active: true,
+			});
+		}
+		// setActiveLeaf alone leaves a collapsed sidebar collapsed, so the view
+		// would exist without ever becoming visible.
+		if (leaf.getRoot() === workspace.rightSplit) {
+			workspace.rightSplit.expand();
+		}
+		workspace.setActiveLeaf(leaf, { focus: true });
+		const view = leaf.view;
+		if (!(view instanceof LexiconView)) {
+			return null;
+		}
+		view.refresh();
 		return view;
 	}
 
@@ -423,10 +759,101 @@ export default class GleanPlugin extends Plugin {
 		this.app.workspace.requestSaveLayout();
 	}
 
+	async openYouTube(
+		videoId: string,
+		subtitlePath: string,
+		title: string,
+		seekTo?: number,
+	): Promise<void> {
+		const view = await this.activateListenView({
+			kind: 'youtube',
+			videoId,
+			title,
+			subtitlePath,
+			seekTo,
+		});
+		if (!view) {
+			new Notice('无法打开 YouTube 精听视图');
+			return;
+		}
+		this.app.workspace.requestSaveLayout();
+	}
+
+	getYouTubeSession(file: TFile | null): {
+		videoId: string;
+		title: string;
+		subtitlePath: string;
+	} | null {
+		return this.youtubeSessionFromFile(file);
+	}
+
+	private youtubeSessionFromFile(file: TFile | null): {
+		videoId: string;
+		title: string;
+		subtitlePath: string;
+	} | null {
+		if (!file) {
+			return null;
+		}
+		const rawFrontmatter: unknown =
+			this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const frontmatter =
+			rawFrontmatter &&
+			typeof rawFrontmatter === 'object' &&
+			!Array.isArray(rawFrontmatter)
+				? (rawFrontmatter as Record<string, unknown>)
+				: undefined;
+		const videoId = frontmatter?.['glean-video-id'];
+		const subtitlePath = frontmatter?.subtitle;
+		if (
+			frontmatter?.['glean-kind'] !== 'youtube' ||
+			typeof videoId !== 'string' ||
+			typeof subtitlePath !== 'string'
+		) {
+			return null;
+		}
+		return {
+			videoId,
+			subtitlePath,
+			title:
+				typeof frontmatter.title === 'string'
+					? frontmatter.title
+					: file.basename,
+		};
+	}
+
+	private findYouTubeSession(videoId: string): {
+		videoId: string;
+		title: string;
+		subtitlePath: string;
+	} | null {
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			const session = this.youtubeSessionFromFile(file);
+			if (session?.videoId === videoId) {
+				return session;
+			}
+		}
+		return null;
+	}
+
 	private async openGleanLink(parameters: Record<string, string>): Promise<void> {
 		const target = parseGleanProtocol(parameters);
 		if (!target) {
 			new Notice('Glean 回跳链接无效');
+			return;
+		}
+		if (target.kind === 'youtube' && target.videoId) {
+			const session = this.findYouTubeSession(target.videoId);
+			if (!session) {
+				new Notice(`找不到 YouTube 会话：${target.videoId}`);
+				return;
+			}
+			await this.openYouTube(
+				session.videoId,
+				session.subtitlePath,
+				session.title,
+				target.time,
+			);
 			return;
 		}
 		const file = this.resolveGleanSource(target.sourcePath);

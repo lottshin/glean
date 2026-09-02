@@ -83,6 +83,10 @@ export class LexiconCatalog {
 		return this.byPath.size;
 	}
 
+	list(): LexiconCard[] {
+		return [...this.byPath.values()];
+	}
+
 	private indexKeys(card: LexiconCard): void {
 		const lemmaKey = keyOf(card.lemma);
 		if (!this.byKey.has(lemmaKey)) {

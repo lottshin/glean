@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<title>Glean</title>
+		<link rel="stylesheet" href="popup.css" />
+	</head>
+	<body>
+		<main class="glean-popup">
+			<header>
+				<strong>Glean</strong>
+				<span>同步 YouTube 字幕到 Obsidian</span>
+			</header>
+
+			<label>
+				接收端口
+				<input id="port" type="number" min="1" max="65535" value="17865" />
+			</label>
+			<label>
+				Token
+				<input id="token" type="password" autocomplete="off" placeholder="在 Glean 设置里复制" />
+			</label>
+
+			<label>
+				字幕语言
+				<select id="lang"></select>
+			</label>
+
+			<p id="status" class="status">打开 YouTube 视频页后可同步。</p>
+
+			<div class="actions">
+				<button id="save" type="button">保存设置</button>
+				<button id="sync" type="button" class="primary">同步当前视频</button>
+			</div>
+		</main>
+		<script type="module" src="popup.js"></script>
+	</body>
+</html>

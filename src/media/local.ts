@@ -8,12 +8,19 @@ export class LocalFileSource implements MediaSource {
 	private timeListeners = new Set<(t: number) => void>();
 	private playListeners = new Set<() => void>();
 	private pauseListeners = new Set<() => void>();
+	private errorListeners = new Set<(message: string) => void>();
 	private boundTimeUpdate = () => this.emitTime();
 	private boundPlay = () => this.emitPlay();
 	private boundPause = () => this.emitPause();
 
-	attach(videoEl: HTMLVideoElement): void {
+	attach(container: HTMLElement): void {
 		this.detach();
+		container.empty();
+		const videoEl = container.createEl('video', { cls: 'glean-video' });
+		videoEl.controls = true;
+		videoEl.preload = 'metadata';
+		videoEl.muted = false;
+		videoEl.volume = 1;
 		this.videoEl = videoEl;
 		videoEl.addEventListener('timeupdate', this.boundTimeUpdate);
 		videoEl.addEventListener('play', this.boundPlay);
@@ -35,6 +42,7 @@ export class LocalFileSource implements MediaSource {
 		this.timeListeners.clear();
 		this.playListeners.clear();
 		this.pauseListeners.clear();
+		this.errorListeners.clear();
 	}
 
 	async load(srcUrl: string, cues: Cue[]): Promise<void> {
@@ -74,6 +82,10 @@ export class LocalFileSource implements MediaSource {
 		} else {
 			this.pause();
 		}
+	}
+
+	isPlaying(): boolean {
+		return this.videoEl !== null && !this.videoEl.paused;
 	}
 
 	seekTo(seconds: number): void {
@@ -119,6 +131,11 @@ export class LocalFileSource implements MediaSource {
 	onPause(cb: () => void): () => void {
 		this.pauseListeners.add(cb);
 		return () => this.pauseListeners.delete(cb);
+	}
+
+	onError(cb: (message: string) => void): () => void {
+		this.errorListeners.add(cb);
+		return () => this.errorListeners.delete(cb);
 	}
 
 	private emitTime(): void {

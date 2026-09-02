@@ -1,0 +1,29 @@
+.glean-sync-btn {
+	appearance: none;
+	margin: 0 8px 0 0;
+	padding: 0 10px;
+	height: 36px;
+	border: none;
+	border-radius: 18px;
+	background: #c4a35a;
+	color: #1b1b1b;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	vertical-align: middle;
+}
+
+.glean-sync-btn:hover {
+	filter: brightness(1.05);
+}
+
+.glean-sync-btn.is-error {
+	background: #b42318;
+	color: #fff;
+}
+
+#glean-sync-button.glean-sync-btn {
+	position: relative;
+	z-index: 20;
+}

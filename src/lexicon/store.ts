@@ -111,6 +111,10 @@ export class LexiconStore {
 		return this.catalog.get(word);
 	}
 
+	list(): LexiconCard[] {
+		return this.catalog.list();
+	}
+
 	isWordNote(file: TFile): boolean {
 		return this.cardFromFile(file) !== null;
 	}

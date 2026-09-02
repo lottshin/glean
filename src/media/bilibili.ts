@@ -3,7 +3,7 @@ import type { Cue, MediaKind, MediaSource } from './types';
 export class BilibiliSource implements MediaSource {
 	readonly kind: MediaKind = 'bilibili';
 
-	attach(_videoEl: HTMLVideoElement): void {
+	attach(_container: HTMLElement): void {
 		throw new Error('BilibiliSource is not implemented yet (planned for v3)');
 	}
 
@@ -23,6 +23,10 @@ export class BilibiliSource implements MediaSource {
 
 	toggle(): void {
 		throw new Error('BilibiliSource is not implemented yet (planned for v3)');
+	}
+
+	isPlaying(): boolean {
+		return false;
 	}
 
 	seekTo(_seconds: number): void {
@@ -56,6 +60,10 @@ export class BilibiliSource implements MediaSource {
 	}
 
 	onPause(_cb: () => void): () => void {
+		return () => {};
+	}
+
+	onError(_cb: (message: string) => void): () => void {
 		return () => {};
 	}
 }

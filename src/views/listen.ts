@@ -19,21 +19,38 @@ import {
 	MEDIA_EXTENSIONS,
 	PLAYBACK_RATES,
 	type Cue,
+	type MediaKind,
+	type MediaSource,
 } from '../media/types';
+import { YouTubeSource } from '../media/youtube';
+import { youtubeSourcePath } from '../youtube/id';
+import { refineCaptionCues } from '../youtube/vtt';
 import { GleanWordPopover } from './word-popup';
-
 export const LISTEN_VIEW_TYPE = 'glean-listen';
 
 export type GleanViewMode = 'listen' | 'dictation';
 
 export interface ListenState {
-	videoPath: string;
-	subtitlePath: string | null;
+	kind?: MediaKind;
+	videoPath?: string;
+	videoId?: string;
+	title?: string;
+	subtitlePath?: string | null;
 	seekTo?: number;
 	mode?: GleanViewMode;
 }
 
 type DictCellView = DictCell & { span: HTMLElement };
+
+/** Apply the latest clause heal/split when opening an already-saved VTT. */
+function refineListenCues(cues: Cue[]): Cue[] {
+	return refineCaptionCues(cues).map((cue, index) => ({
+		index,
+		start: cue.start,
+		end: cue.end,
+		text: cue.text,
+	}));
+}
 
 /**
  * Glean listen view.
@@ -42,7 +59,8 @@ type DictCellView = DictCell & { span: HTMLElement };
  */
 export class ListenView extends ItemView {
 	plugin: GleanPlugin;
-	private source = new LocalFileSource();
+	private source: MediaSource = new LocalFileSource();
+	private mediaHostEl: HTMLElement | null = null;
 	private videoEl: HTMLVideoElement | null = null;
 	private cueListEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
@@ -57,6 +75,7 @@ export class ListenView extends ItemView {
 	private unsubs: Array<() => void> = [];
 	private currentVideo: TFile | null = null;
 	private currentSubtitle: TFile | null = null;
+	private currentYouTube: { videoId: string; title: string } | null = null;
 	private sentenceMode = false;
 	/** True only after the playhead has entered the target sentence (avoids seek race). */
 	private sentenceArmed = false;
@@ -102,7 +121,8 @@ export class ListenView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return this.currentVideo ? `Glean · ${this.currentVideo.basename}` : 'Glean 精听';
+		const title = this.currentVideo?.basename ?? this.currentYouTube?.title;
+		return title ? `Glean · ${title}` : 'Glean 精听';
 	}
 
 	getIcon(): string {
@@ -119,6 +139,18 @@ export class ListenView extends ItemView {
 	}
 
 	async openMedia(state: ListenState): Promise<void> {
+		if (state.kind === 'youtube' || state.videoId) {
+			if (!state.videoId) {
+				this.setStatus('缺少 YouTube 视频 ID');
+				return;
+			}
+			await this.openYouTubeMedia(state);
+			return;
+		}
+		if (!state.videoPath) {
+			this.setStatus('请选择媒体文件');
+			return;
+		}
 		const video = this.app.vault.getAbstractFileByPath(state.videoPath);
 		if (!(video instanceof TFile) || !MEDIA_EXTENSIONS.has(video.extension.toLowerCase())) {
 			this.setStatus(`找不到媒体：${state.videoPath}`);
@@ -243,12 +275,7 @@ export class ListenView extends ItemView {
 		this.audioTitleEl = audioMeta.createDiv({ cls: 'glean-audio-title', text: '' });
 		this.audioSubEl = audioMeta.createDiv({ cls: 'glean-audio-sub', text: '音频精听' });
 
-		this.videoEl = stage.createEl('video', { cls: 'glean-video' });
-		this.videoEl.controls = true;
-		this.videoEl.preload = 'metadata';
-		this.videoEl.muted = false;
-		this.videoEl.volume = 1;
-		this.videoEl.addEventListener('loadedmetadata', () => this.syncMediaChrome());
+		this.mediaHostEl = stage.createDiv({ cls: 'glean-media-host' });
 
 		const veil = stage.createDiv({ cls: 'glean-video-veil' });
 		veil.createDiv({ cls: 'glean-video-veil-title', text: '听写中' });
@@ -301,13 +328,7 @@ export class ListenView extends ItemView {
 			'打开媒体后，同目录同名的 .srt / .vtt 会自动挂上。',
 		);
 
-		this.source.attach(this.videoEl);
-		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
-		this.unsubs.push(
-			this.source.onTimeUpdate((t) => this.onTick(t)),
-			this.source.onPlay(() => this.syncPlayButton()),
-			this.source.onPause(() => this.syncPlayButton()),
-		);
+		this.bindSource(this.source);
 
 		this.syncModeChrome();
 		this.syncMediaChrome();
@@ -318,6 +339,35 @@ export class ListenView extends ItemView {
 		new MediaSuggestModal(this.app, (file) => {
 			void this.plugin.openVideo(file);
 		}).open();
+	}
+
+	private bindSource(source: MediaSource): void {
+		for (const unsubscribe of this.unsubs) {
+			unsubscribe();
+		}
+		this.unsubs = [];
+		this.source.detach();
+		this.source = source;
+		if (!this.mediaHostEl) {
+			return;
+		}
+		this.source.attach(this.mediaHostEl);
+		this.videoEl = this.mediaHostEl.querySelector('video');
+		this.videoEl?.addEventListener('loadedmetadata', () => this.syncMediaChrome());
+		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
+		this.unsubs.push(
+			this.source.onTimeUpdate((time) => this.onTick(time)),
+			this.source.onPlay(() => this.syncPlayButton()),
+			this.source.onPause(() => this.syncPlayButton()),
+			this.source.onError((message) => this.setStatus(message)),
+		);
+	}
+
+	private ensureSource(kind: 'local' | 'youtube'): void {
+		if (this.source.kind === kind) {
+			return;
+		}
+		this.bindSource(kind === 'youtube' ? new YouTubeSource() : new LocalFileSource());
 	}
 
 	private setMode(mode: GleanViewMode): void {
@@ -405,14 +455,19 @@ export class ListenView extends ItemView {
 
 	private syncMediaChrome(): void {
 		const root = this.contentEl;
-		const has = !!this.currentVideo;
+		const has = !!this.currentVideo || !!this.currentYouTube;
 		root.toggleClass('has-media', has);
+		root.toggleClass('is-youtube', this.currentYouTube !== null);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
 		root.toggleClass('is-audio', isAudio);
 
 		let isPortrait = false;
-		if (this.videoEl && this.videoEl.videoWidth > 0 && this.videoEl.videoHeight > 0) {
+		if (
+			this.videoEl instanceof HTMLVideoElement &&
+			this.videoEl.videoWidth > 0 &&
+			this.videoEl.videoHeight > 0
+		) {
 			isPortrait = this.videoEl.videoHeight > this.videoEl.videoWidth;
 		}
 		root.toggleClass('is-portrait', isPortrait && !isAudio);
@@ -428,9 +483,10 @@ export class ListenView extends ItemView {
 	}
 
 	private async loadFiles(video: TFile, subtitle: TFile | null): Promise<void> {
-		if (!this.videoEl) {
+		if (!this.mediaHostEl) {
 			return;
 		}
+		this.ensureSource('local');
 
 		this.closeWordLookup();
 		this.sentenceMode = false;
@@ -443,22 +499,18 @@ export class ListenView extends ItemView {
 		let cues: Cue[] = [];
 		if (subtitle) {
 			const raw = await this.app.vault.read(subtitle);
-			cues = parseSubtitles(raw);
+			cues = refineListenCues(parseSubtitles(raw));
 		}
 
 		try {
 			await this.source.load(srcUrl, cues);
 		} catch {
 			this.currentVideo = null;
+			this.currentYouTube = null;
 			this.currentSubtitle = null;
 			this.syncMediaChrome();
 			this.setStatus('媒体无法播放。试试 mp4 / webm / mp3 / m4a。');
 			return;
-		}
-
-		if (this.videoEl) {
-			this.videoEl.muted = false;
-			this.videoEl.volume = 1;
 		}
 
 		if (this.playerPaneEl) {
@@ -466,6 +518,7 @@ export class ListenView extends ItemView {
 		}
 
 		this.currentVideo = video;
+		this.currentYouTube = null;
 		this.currentSubtitle = subtitle;
 		this.cues = cues;
 		this.activeIndex = -1;
@@ -488,6 +541,83 @@ export class ListenView extends ItemView {
 
 		const subLabel = subtitle ? subtitle.name : '无字幕';
 		this.setStatus(`${video.name} · ${subLabel} · ${cues.length} 句`);
+		this.updateTime(this.source.getCurrentTime());
+		this.app.workspace.requestSaveLayout();
+		this.contentEl.focus({ preventScroll: true });
+	}
+
+	private async openYouTubeMedia(state: ListenState): Promise<void> {
+		if (!this.mediaHostEl || !state.videoId) {
+			return;
+		}
+		let subtitle: TFile | null = null;
+		if (state.subtitlePath) {
+			const found = this.app.vault.getAbstractFileByPath(state.subtitlePath);
+			if (found instanceof TFile) {
+				subtitle = found;
+			}
+		}
+		if (!subtitle) {
+			this.setStatus('找不到 YouTube 字幕文件');
+			return;
+		}
+
+		const cues = refineListenCues(
+			parseSubtitles(await this.app.vault.read(subtitle)),
+		);
+		if (cues.length === 0) {
+			this.setStatus('YouTube 字幕为空或格式无效');
+			return;
+		}
+
+		this.closeWordLookup();
+		this.sentenceMode = false;
+		this.sentenceArmed = false;
+		this.ensureSource('youtube');
+		this.source.pause();
+		this.setStatus('正在连接 YouTube…');
+		if (state.seekTo !== undefined) {
+			this.pendingSeek = state.seekTo;
+		}
+		if (state.mode === 'listen' || state.mode === 'dictation') {
+			this.mode = state.mode;
+		}
+
+		try {
+			await this.source.load(state.videoId, cues);
+		} catch (error) {
+			this.currentVideo = null;
+			this.currentYouTube = null;
+			this.currentSubtitle = null;
+			this.syncMediaChrome();
+			this.setStatus(error instanceof Error ? error.message : 'YouTube 播放失败');
+			return;
+		}
+
+		this.currentVideo = null;
+		this.currentYouTube = {
+			videoId: state.videoId,
+			title: state.title?.trim() || state.videoId,
+		};
+		this.currentSubtitle = subtitle;
+		this.cues = cues;
+		this.activeIndex = -1;
+		this.clearAdvanceTimer();
+		this.syncMediaChrome();
+		this.syncModeChrome();
+		this.renderCues();
+		this.refreshFocus();
+		if (this.mode === 'dictation') {
+			this.loadDictationForActive();
+		}
+		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
+		if (this.pendingSeek !== null) {
+			this.source.seekTo(this.pendingSeek);
+			this.pendingSeek = null;
+		}
+		this.setStatus(
+			`${this.currentYouTube.title} · ${subtitle.name} · ${cues.length} 句`,
+		);
 		this.updateTime(this.source.getCurrentTime());
 		this.app.workspace.requestSaveLayout();
 		this.contentEl.focus({ preventScroll: true });
@@ -610,17 +740,24 @@ export class ListenView extends ItemView {
 		this.selectedWord = { cueIndex: cue.index, wordIndex, lookupId };
 		this.paintWordSelection(previous, this.selectedWord);
 		const initialCard = this.plugin.findLexiconCard(word);
+		const sourceName =
+			this.currentVideo?.name ?? this.currentYouTube?.title ?? '当前媒体';
+		const sourcePath = this.currentVideo
+			? this.currentVideo.path
+			: this.currentYouTube
+				? youtubeSourcePath(this.currentYouTube.videoId)
+				: null;
 		this.wordPopover.open(anchor, {
 			lookupId,
 			word,
 			sentence: cue.text,
-			sourceName: this.currentVideo?.name ?? '当前媒体',
+			sourceName,
 			timeLabel: formatTimestamp(cue.start),
 			inLexicon: initialCard !== null,
 			status: initialCard?.status,
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
 			onSave: async (lookup) => {
-				if (!this.currentVideo) {
+				if (!sourcePath) {
 					throw new Error('没有来源媒体');
 				}
 				const resolved = lookup ?? {
@@ -634,7 +771,8 @@ export class ListenView extends ItemView {
 						lookup: resolved,
 						context: {
 							sentence: cue.text,
-							sourcePath: this.currentVideo.path,
+							sourcePath,
+							sourceName,
 							time: cue.start,
 							timeLabel: formatTimestamp(cue.start),
 						},
@@ -842,7 +980,7 @@ export class ListenView extends ItemView {
 		// Dictation always stops at the active sentence end (even if continuous play slipped in).
 		if (this.mode === 'dictation' && this.activeIndex >= 0) {
 			const cue = this.cues[this.activeIndex];
-			if (cue && t >= cue.end - 0.05 && this.videoEl && !this.videoEl.paused) {
+			if (cue && t >= cue.end - 0.05 && this.source.isPlaying()) {
 				this.source.pause();
 				this.focusDictInput();
 				return;
@@ -903,7 +1041,11 @@ export class ListenView extends ItemView {
 			return;
 		}
 
-		const hideHint = this.hidden ? '原句已隐藏 · H 显示' : '原句可见 · H 隐藏';
+		const hideHint = this.currentYouTube
+			? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
+			: this.hidden
+				? '原句已隐藏 · H 显示'
+				: '原句可见 · H 隐藏';
 		this.dictHintEl.setText(
 			`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 		);
@@ -1078,7 +1220,11 @@ export class ListenView extends ItemView {
 				this.dictHintEl.setText('匹配完成');
 				this.dictHintEl.addClass('is-done');
 			} else if (cue) {
-				const hideHint = this.hidden ? '原句已隐藏 · H 显示' : '原句可见 · H 隐藏';
+				const hideHint = this.currentYouTube
+					? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
+					: this.hidden
+						? '原句已隐藏 · H 显示'
+						: '原句可见 · H 隐藏';
 				this.dictHintEl.setText(
 					`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 				);
@@ -1146,7 +1292,7 @@ export class ListenView extends ItemView {
 
 	private togglePlayback(): void {
 		if (this.mode === 'dictation') {
-			if (this.videoEl && !this.videoEl.paused) {
+			if (this.source.isPlaying()) {
 				this.sentenceMode = false;
 				this.sentenceArmed = false;
 				this.source.pause();
@@ -1233,10 +1379,10 @@ export class ListenView extends ItemView {
 	}
 
 	private syncPlayButton(): void {
-		if (!this.playBtn || !this.videoEl) {
+		if (!this.playBtn) {
 			return;
 		}
-		this.playBtn.setText(this.videoEl.paused ? '播放' : '暂停');
+		this.playBtn.setText(this.source.isPlaying() ? '暂停' : '播放');
 	}
 
 	private updateTime(t: number): void {
@@ -1259,6 +1405,7 @@ export class ListenView extends ItemView {
 		}
 		this.unsubs = [];
 		this.source.detach();
+		this.mediaHostEl = null;
 		this.videoEl = null;
 		this.cueListEl = null;
 		this.cueEls = [];
@@ -1279,10 +1426,21 @@ export class ListenView extends ItemView {
 	}
 
 	getState(): Record<string, unknown> {
+		if (this.currentYouTube) {
+			return {
+				kind: 'youtube',
+				videoId: this.currentYouTube.videoId,
+				title: this.currentYouTube.title,
+				subtitlePath: this.currentSubtitle?.path ?? null,
+				seekTo: this.source.getCurrentTime(),
+				mode: this.mode,
+			};
+		}
 		if (!this.currentVideo) {
 			return { mode: this.mode };
 		}
 		return {
+			kind: 'local',
 			videoPath: this.currentVideo.path,
 			subtitlePath: this.currentSubtitle?.path ?? null,
 			seekTo: this.source.getCurrentTime(),
@@ -1300,8 +1458,18 @@ export class ListenView extends ItemView {
 			this.mode = s.mode;
 			this.syncModeChrome();
 		}
-		if (typeof s.videoPath === 'string') {
+		if (s.kind === 'youtube' && typeof s.videoId === 'string') {
 			await this.openMedia({
+				kind: 'youtube',
+				videoId: s.videoId,
+				title: typeof s.title === 'string' ? s.title : undefined,
+				subtitlePath: typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
+				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,
+				mode: s.mode,
+			});
+		} else if (typeof s.videoPath === 'string') {
+			await this.openMedia({
+				kind: 'local',
 				videoPath: s.videoPath,
 				subtitlePath: typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
 				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,

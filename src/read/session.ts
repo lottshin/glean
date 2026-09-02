@@ -471,16 +471,36 @@ export class ReadingMode {
 			.querySelectorAll(`.view-actions .${ACTION_CLASS}`)
 			.forEach((node) => node.remove());
 		const file = view.file;
+		if (!file) {
+			return;
+		}
+
+		const youtube = this.plugin.getYouTubeSession(file);
+		if (youtube) {
+			const button = view.addAction(READ_ICON, 'Glean 精听', () => {
+				void this.plugin.openYouTube(
+					youtube.videoId,
+					youtube.subtitlePath,
+					youtube.title,
+				);
+			});
+			button.addClass(ACTION_CLASS);
+			return;
+		}
+
 		if (!this.canEnable(file)) {
 			return;
 		}
 		const on = this.enabled.has(file.path);
-		// The wheat mark means "Glean acts here". On a note the only Glean
-		// action is reading, so the brand icon needs no second glyph. It also
-		// keeps clear of `book-open`, which Obsidian's own preview toggle owns.
-		const button = view.addAction(READ_ICON, on ? '退出 Glean 阅读' : 'Glean 阅读', () => {
-			void this.toggle(file);
-		});
+		// The wheat mark means "Glean acts here". On an article note that action
+		// is reading; on a YouTube session note it opens intensive listening.
+		const button = view.addAction(
+			READ_ICON,
+			on ? '退出 Glean 阅读' : 'Glean 阅读',
+			() => {
+				void this.toggle(file);
+			},
+		);
 		button.addClass(ACTION_CLASS);
 		button.toggleClass('is-active', on);
 	}

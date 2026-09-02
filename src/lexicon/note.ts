@@ -5,6 +5,7 @@ export type WordStatus = 'new' | 'learning' | 'known' | 'ignored';
 export interface WordContext {
 	sentence: string;
 	sourcePath: string;
+	sourceName?: string;
 	time?: number;
 	timeLabel: string;
 }
@@ -25,9 +26,20 @@ function markdownText(value: string): string {
 	return compact.length > 300 ? `${compact.slice(0, 297)}…` : compact;
 }
 
-export function sourceWikiLink(context: WordContext): string {
+export function sourceLink(context: WordContext): string {
+	if (context.sourcePath.startsWith('youtube:')) {
+		const videoId = context.sourcePath.slice('youtube:'.length);
+		const label = (context.sourceName?.trim() || `YouTube · ${videoId}`)
+			.replace(/\\/g, '\\\\')
+			.replace(/\[/g, '\\[')
+			.replace(/\]/g, '\\]');
+		return `[${label}](https://youtu.be/${videoId})`;
+	}
 	return `[[${context.sourcePath}]]`;
 }
+
+/** Kept as an alias for older callers. */
+export const sourceWikiLink = sourceLink;
 
 export function createGleanUid(): string {
 	const time = Date.now().toString(36);
@@ -48,9 +60,9 @@ export function contextLine(context: WordContext): string {
 	const sentence = markdownText(context.sentence).replace(/"/g, '\\"');
 	const uri = wordNoteUri(context);
 	if (uri) {
-		return `- [${context.timeLabel}](${uri}) · ${sourceWikiLink(context)} — "${sentence}"`;
+		return `- [${context.timeLabel}](${uri}) · ${sourceLink(context)} — "${sentence}"`;
 	}
-	return `- ${sourceWikiLink(context)} — "${sentence}"`;
+	return `- ${sourceLink(context)} — "${sentence}"`;
 }
 
 export function contextIdentity(context: WordContext): string {
@@ -59,7 +71,7 @@ export function contextIdentity(context: WordContext): string {
 		return `](${uri})`;
 	}
 	const sentence = markdownText(context.sentence).replace(/"/g, '\\"');
-	return `${sourceWikiLink(context)} — "${sentence}"`;
+	return `${sourceLink(context)} — "${sentence}"`;
 }
 
 export function createWordNote(input: WordNoteInput): string {
@@ -85,7 +97,7 @@ export function createWordNote(input: WordNoteInput): string {
 		forms.length > 0 ? 'forms:' : 'forms: []',
 		...forms.map((form) => `  - ${yamlString(form)}`),
 		'sources:',
-		`  - ${yamlString(sourceWikiLink(context))}`,
+		`  - ${yamlString(sourceLink(context))}`,
 		'---',
 		'',
 		`# ${lemma}`,
@@ -141,7 +153,7 @@ export function appendWordContext(content: string, context: WordContext): {
 }
 
 function findContextsSection(content: string): { start: number; end: number } | null {
-	const lines = content.split(/(?<=\n)/);
+	const lines = content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 	const sections: Array<{ start: number; end: number; marked: boolean }> = [];
 	let offset = 0;
 	let inFence = false;
@@ -334,7 +346,7 @@ export function updateWordNote(
 		schemaChanged = true;
 	}
 
-	const source = sourceWikiLink(input.context);
+	const source = sourceLink(input.context);
 	const sources = stringList(frontmatter.sources);
 	if (!sources.includes(source)) {
 		appendListValue(lines, 'sources', sources, source);
