@@ -83,6 +83,8 @@
 .ytp-right-controls #glean-sync-button.glean-sync-btn,
 .ytp-chrome-controls #glean-sync-button.glean-sync-btn {
 	height: 28px;
+	/* Player bar is 48px and native buttons are top-aligned; (48-28)/2 = 10px centers the pill. */
+	vertical-align: top;
 	margin: 10px 8px 0 0;
 	font-size: 11.5px;
 }
