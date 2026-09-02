@@ -92,17 +92,13 @@ body {
 }
 
 .popup-mark {
-	display: grid;
-	place-items: center;
 	flex: none;
-	width: 30px;
-	height: 30px;
-	border-radius: 9px;
-	background: linear-gradient(140deg, var(--glean-accent), var(--glean-accent-strong));
-	color: var(--glean-accent-ink);
-	font-size: 16px;
-	font-weight: 800;
-	line-height: 1;
+	width: 32px;
+	height: 32px;
+	border-radius: 8px;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
 }
 
 .popup-heading {

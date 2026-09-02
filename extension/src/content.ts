@@ -10,22 +10,8 @@ import {
 const BUTTON_ID = 'glean-sync-button';
 const LABEL_CLASS = 'glean-sync-btn__label';
 const DEFAULT_LABEL = 'Glean';
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-/**
- * Lucide `wheat` (ISC) — the same mark the Obsidian plugin uses for its ribbon
- * icon, inlined so the button carries the brand without a network request.
- */
-const WHEAT_PATHS = [
-	'M2 22 16 8',
-	'M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z',
-	'M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z',
-	'M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z',
-	'M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z',
-	'M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z',
-	'M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z',
-	'M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z',
-];
+/** The packaged app icon, so the pill carries the exact brand mark. */
+const BRAND_ICON_PATH = 'icons/icon-32.png';
 
 const REQUEST_EVENT = 'glean-request-capture';
 const RESPONSE_EVENT = 'glean-capture-response';
@@ -164,30 +150,21 @@ interface SyncRequest {
 	};
 }
 
-function createWheatIcon(): SVGSVGElement {
-	const svg = document.createElementNS(SVG_NS, 'svg');
-	svg.setAttribute('class', 'glean-sync-btn__icon');
-	svg.setAttribute('viewBox', '0 0 24 24');
-	svg.setAttribute('fill', 'none');
-	svg.setAttribute('stroke', 'currentColor');
-	svg.setAttribute('stroke-width', '2');
-	svg.setAttribute('stroke-linecap', 'round');
-	svg.setAttribute('stroke-linejoin', 'round');
-	svg.setAttribute('aria-hidden', 'true');
-	svg.setAttribute('focusable', 'false');
-	for (const d of WHEAT_PATHS) {
-		const path = document.createElementNS(SVG_NS, 'path');
-		path.setAttribute('d', d);
-		svg.appendChild(path);
-	}
-	return svg;
+function createBrandIcon(): HTMLImageElement {
+	const img = document.createElement('img');
+	img.className = 'glean-sync-btn__icon';
+	img.src = chrome.runtime.getURL(BRAND_ICON_PATH);
+	img.alt = '';
+	img.setAttribute('aria-hidden', 'true');
+	img.setAttribute('draggable', 'false');
+	return img;
 }
 
 /** Icon on the left, status text on the right: only the text ever changes. */
 function fillButton(button: HTMLButtonElement): void {
 	const pill = document.createElement('span');
 	pill.className = 'glean-sync-btn__pill';
-	pill.appendChild(createWheatIcon());
+	pill.appendChild(createBrandIcon());
 	const label = document.createElement('span');
 	label.className = LABEL_CLASS;
 	label.textContent = DEFAULT_LABEL;
