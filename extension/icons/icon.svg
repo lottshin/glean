@@ -4,50 +4,58 @@
 
   The silhouette is Lucide `wheat` (ISC), the same mark the Obsidian ribbon and
   the injected YouTube pill use, so all three read as one brand. Depth comes
-  from the tile (gradient, sheen, corner shade, bevel) and from embossing the
-  mark, not from redrawing it.
+  from the tile (gradient, sun glow, corner shade, bevel) and from embossing the
+  mark, not from redrawing it. Palette tuned for a bright, sunlit harvest feel.
 
   Rasterise with `npm run icons:build`.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="128" height="128" viewBox="0 0 128 128">
 	<defs>
-		<!-- Tile body: light gold at the top-left shoulder into a deeper amber
-		     at the bottom-right, so the square itself reads as a lit surface. -->
+		<!-- Tile body: bright cream-gold shoulder into a saturated marigold, a
+		     lit sunny surface rather than a muddy tan. -->
 		<linearGradient id="tile" x1="0.12" y1="0" x2="0.82" y2="1">
-			<stop offset="0" stop-color="#eed99f" />
-			<stop offset="0.38" stop-color="#d9b871" />
-			<stop offset="0.74" stop-color="#c39a4e" />
-			<stop offset="1" stop-color="#a87f38" />
+			<stop offset="0" stop-color="#ffe9a8" />
+			<stop offset="0.4" stop-color="#ffd268" />
+			<stop offset="0.75" stop-color="#f7b336" />
+			<stop offset="1" stop-color="#ee9f27" />
 		</linearGradient>
+
+		<!-- Sun glow: warm light pooling in the upper-left, the joyful highlight. -->
+		<radialGradient id="glow" cx="0.3" cy="0.16" r="0.85">
+			<stop offset="0" stop-color="#fffdf2" stop-opacity="0.8" />
+			<stop offset="0.4" stop-color="#fff2c9" stop-opacity="0.28" />
+			<stop offset="1" stop-color="#fff2c9" stop-opacity="0" />
+		</radialGradient>
 
 		<!-- Broad specular sheen over the upper half. -->
 		<linearGradient id="sheen" x1="0" y1="0" x2="0.25" y2="1">
-			<stop offset="0" stop-color="#fffaf0" stop-opacity="0.42" />
-			<stop offset="0.34" stop-color="#fff6e2" stop-opacity="0.14" />
-			<stop offset="0.62" stop-color="#ffffff" stop-opacity="0" />
+			<stop offset="0" stop-color="#fffaf0" stop-opacity="0.3" />
+			<stop offset="0.4" stop-color="#fff6e2" stop-opacity="0.1" />
+			<stop offset="0.68" stop-color="#ffffff" stop-opacity="0" />
 		</linearGradient>
 
-		<!-- Warm shade pooling in the bottom-right corner. -->
-		<radialGradient id="vignette" cx="0.8" cy="1.04" r="0.9">
-			<stop offset="0" stop-color="#5e400c" stop-opacity="0.42" />
-			<stop offset="0.5" stop-color="#6d4d13" stop-opacity="0.13" />
-			<stop offset="1" stop-color="#6d4d13" stop-opacity="0" />
+		<!-- Warm amber shade pooling in the bottom-right corner, light enough to
+		     keep the tile glowing. -->
+		<radialGradient id="vignette" cx="0.82" cy="1.05" r="0.95">
+			<stop offset="0" stop-color="#c0761a" stop-opacity="0.3" />
+			<stop offset="0.55" stop-color="#c47f1e" stop-opacity="0.08" />
+			<stop offset="1" stop-color="#c47f1e" stop-opacity="0" />
 		</radialGradient>
 
 		<!-- 1.5px bevel: lit along the top edge, shaded along the bottom. -->
 		<linearGradient id="rim" x1="0.2" y1="0" x2="0.8" y2="1">
-			<stop offset="0" stop-color="#fff8e6" stop-opacity="0.66" />
-			<stop offset="0.45" stop-color="#ffffff" stop-opacity="0.08" />
-			<stop offset="1" stop-color="#4a340c" stop-opacity="0.3" />
+			<stop offset="0" stop-color="#fffdf2" stop-opacity="0.8" />
+			<stop offset="0.45" stop-color="#ffffff" stop-opacity="0.1" />
+			<stop offset="1" stop-color="#7a4f14" stop-opacity="0.32" />
 		</linearGradient>
 
-		<!-- Espresso mark, lighter where the light hits it. Anchored in the
+		<!-- Warm caramel mark, lighter where the light hits it. Anchored in the
 		     mark's own 24-unit space so every grain shares one light direction
 		     instead of each getting its own ramp. -->
 		<linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="3" y1="1" x2="17" y2="23">
-			<stop offset="0" stop-color="#54401a" />
-			<stop offset="0.5" stop-color="#382a0e" />
-			<stop offset="1" stop-color="#241a06" />
+			<stop offset="0" stop-color="#84591a" />
+			<stop offset="0.5" stop-color="#653f0e" />
+			<stop offset="1" stop-color="#4c2f08" />
 		</linearGradient>
 
 		<filter id="markShadow" x="-25%" y="-25%" width="150%" height="150%">
@@ -73,15 +81,16 @@
 
 	<rect width="128" height="128" rx="28" fill="url(#tile)" />
 	<rect width="128" height="128" rx="28" fill="url(#vignette)" />
+	<rect width="128" height="128" rx="28" fill="url(#glow)" />
 	<rect width="128" height="128" rx="28" fill="url(#sheen)" />
 
 	<!-- Mark, lit from the top-left: cast shadow below, rim highlight above. -->
 	<g transform="translate(18 18) scale(3.8333)">
-		<g transform="translate(0.26 0.6)" filter="url(#markShadow)" opacity="0.38">
-			<use href="#wheat" xlink:href="#wheat" stroke="#33240a" />
+		<g transform="translate(0.26 0.6)" filter="url(#markShadow)" opacity="0.32">
+			<use href="#wheat" xlink:href="#wheat" stroke="#4a3208" />
 		</g>
-		<g transform="translate(-0.16 -0.3)" opacity="0.55">
-			<use href="#wheat" xlink:href="#wheat" stroke="#fff4d4" />
+		<g transform="translate(-0.16 -0.3)" opacity="0.7">
+			<use href="#wheat" xlink:href="#wheat" stroke="#fff6de" />
 		</g>
 		<use href="#wheat" xlink:href="#wheat" stroke="url(#mark)" />
 	</g>
