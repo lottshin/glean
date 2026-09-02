@@ -29,5 +29,10 @@ await cp(path.join(root, 'extension/manifest.json'), path.join(outdir, 'manifest
 await cp(path.join(root, 'extension/src/popup.html'), path.join(outdir, 'popup.html'));
 await cp(path.join(root, 'extension/src/popup.css'), path.join(outdir, 'popup.css'));
 await cp(path.join(root, 'extension/src/content.css'), path.join(outdir, 'content.css'));
+// PNGs only — the SVG master stays in the repo and is not shipped.
+await cp(path.join(root, 'extension/icons'), path.join(outdir, 'icons'), {
+	recursive: true,
+	filter: (src) => !src.endsWith('.svg'),
+});
 
 console.log(`extension built → ${outdir}`);

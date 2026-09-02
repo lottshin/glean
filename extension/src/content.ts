@@ -13,7 +13,7 @@ const DEFAULT_LABEL = 'Glean';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
- * Lucide `wheat` (MIT) — the same mark the Obsidian plugin uses for its ribbon
+ * Lucide `wheat` (ISC) — the same mark the Obsidian plugin uses for its ribbon
  * icon, inlined so the button carries the brand without a network request.
  */
 const WHEAT_PATHS = [

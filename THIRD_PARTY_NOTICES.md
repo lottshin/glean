@@ -4,7 +4,9 @@
 
 The browser extension inlines the `wheat` icon from
 [Lucide](https://github.com/lucide-icons/lucide) so the injected button carries
-the same brand mark as the plugin's ribbon icon.
+the same brand mark as the plugin's ribbon icon. The same outline is the basis
+for the extension's own app icon (`extension/icons/icon.svg` and the PNGs
+rasterised from it), where it sits embossed on a gold tile.
 
 ```text
 ISC License

@@ -8,6 +8,7 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"extension:build": "node extension/esbuild.mjs",
+		"icons:build": "node tools/build-icons.mjs",
 		"dict:build": "node tools/build-dict.mjs",
 		"dict:coverage": "node tools/sample-coverage.mjs",
 		"test": "vitest run",
@@ -35,6 +36,7 @@
 		"globals": "^17.6.0",
 		"jiti": "^2.6.1",
 		"obsidian": "latest",
+		"sharp": "^0.35.4",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1",
 		"vitest": "^3.2.4"
