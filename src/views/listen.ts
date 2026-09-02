@@ -343,7 +343,7 @@ export class ListenView extends ItemView {
 		cuesHead.createDiv({ cls: 'glean-cues-label', text: '字幕' });
 		cuesHead.createDiv({
 			cls: 'glean-cue-edit-hint',
-			text: '词间点一下断句 · 行首 ⌫ 并入上一行',
+			text: '词间 \u21B5\uFE0E 断句 · 行首 \u232B\uFE0E 并入上一行',
 		});
 		this.cueListEl = cuesWrap.createDiv({ cls: 'glean-cues' });
 		this.renderEmptyCues(
