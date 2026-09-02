@@ -11,7 +11,18 @@ import {
 } from '../media/dictation';
 import { LocalFileSource } from '../media/local';
 import { MediaSuggestModal } from '../media/picker';
-import { formatTimestamp, parseSubtitles } from '../media/srt';
+import {
+	mergeCueWithNext,
+	nudgeCueEdge,
+	splitCueAtMidpoint,
+	splitCueBeforeWord,
+} from '../media/cue-edit';
+import {
+	formatTimestamp,
+	isGleanEditedSubtitles,
+	parseSubtitles,
+	serializeSubtitles,
+} from '../media/srt';
 import { findSiblingSubtitle } from '../media/subtitles';
 import { tokenizeSubtitle } from '../media/subtitle-tokens';
 import {
@@ -42,6 +53,8 @@ export interface ListenState {
 
 type DictCellView = DictCell & { span: HTMLElement };
 
+const CUE_NUDGE_SECONDS = 0.2;
+
 /** Apply the latest clause heal/split when opening an already-saved VTT. */
 function refineListenCues(cues: Cue[]): Cue[] {
 	return refineCaptionCues(cues).map((cue, index) => ({
@@ -50,6 +63,15 @@ function refineListenCues(cues: Cue[]): Cue[] {
 		end: cue.end,
 		text: cue.text,
 	}));
+}
+
+/** Manual edits write a lock note so we do not undo them on the next open. */
+function cuesFromSubtitleBody(raw: string): Cue[] {
+	const parsed = parseSubtitles(raw);
+	if (isGleanEditedSubtitles(raw)) {
+		return parsed;
+	}
+	return refineListenCues(parsed);
 }
 
 /**
@@ -321,7 +343,63 @@ export class ListenView extends ItemView {
 		this.inputEl.addEventListener('keydown', (evt) => this.onDictKey(evt));
 
 		const cuesWrap = side.createDiv({ cls: 'glean-cues-wrap' });
-		cuesWrap.createDiv({ cls: 'glean-cues-label', text: '字幕' });
+		const cuesHead = cuesWrap.createDiv({ cls: 'glean-cues-head' });
+		cuesHead.createDiv({ cls: 'glean-cues-label', text: '字幕' });
+		const cueEdit = cuesHead.createDiv({ cls: 'glean-cue-edit' });
+		const mergeBtn = cueEdit.createEl('button', {
+			text: '合并',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: '与下一句合并 (M)' },
+		});
+		mergeBtn.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.mergeActiveWithNext();
+		});
+		const splitBtn = cueEdit.createEl('button', {
+			text: '拆分',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: '在选中的词前拆开；未选词则从中间拆 (S)' },
+		});
+		splitBtn.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.splitActiveCue();
+		});
+		const startMinus = cueEdit.createEl('button', {
+			text: '起−',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: `当前句起点提前 ${CUE_NUDGE_SECONDS}s` },
+		});
+		startMinus.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.nudgeActiveEdge('start', -CUE_NUDGE_SECONDS);
+		});
+		const startPlus = cueEdit.createEl('button', {
+			text: '起+',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: `当前句起点推后 ${CUE_NUDGE_SECONDS}s` },
+		});
+		startPlus.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.nudgeActiveEdge('start', CUE_NUDGE_SECONDS);
+		});
+		const endMinus = cueEdit.createEl('button', {
+			text: '止−',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: `当前句终点提前 ${CUE_NUDGE_SECONDS}s` },
+		});
+		endMinus.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.nudgeActiveEdge('end', -CUE_NUDGE_SECONDS);
+		});
+		const endPlus = cueEdit.createEl('button', {
+			text: '止+',
+			cls: 'glean-btn glean-cue-edit-btn',
+			attr: { title: `当前句终点推后 ${CUE_NUDGE_SECONDS}s` },
+		});
+		endPlus.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.nudgeActiveEdge('end', CUE_NUDGE_SECONDS);
+		});
 		this.cueListEl = cuesWrap.createDiv({ cls: 'glean-cues' });
 		this.renderEmptyCues(
 			'还没有字幕',
@@ -499,7 +577,7 @@ export class ListenView extends ItemView {
 		let cues: Cue[] = [];
 		if (subtitle) {
 			const raw = await this.app.vault.read(subtitle);
-			cues = refineListenCues(parseSubtitles(raw));
+			cues = cuesFromSubtitleBody(raw);
 		}
 
 		try {
@@ -562,9 +640,7 @@ export class ListenView extends ItemView {
 			return;
 		}
 
-		const cues = refineListenCues(
-			parseSubtitles(await this.app.vault.read(subtitle)),
-		);
+		const cues = cuesFromSubtitleBody(await this.app.vault.read(subtitle));
 		if (cues.length === 0) {
 			this.setStatus('YouTube 字幕为空或格式无效');
 			return;
@@ -1290,6 +1366,75 @@ export class ListenView extends ItemView {
 		this.setActive(cue.index);
 	}
 
+	private mergeActiveWithNext(): Promise<void> {
+		return this.applyCueEdit(
+			mergeCueWithNext(this.cues, this.activeIndex),
+			'已与下一句合并',
+			'没有下一句可合并',
+		);
+	}
+
+	private splitActiveCue(): Promise<void> {
+		const index = this.activeIndex;
+		const selected =
+			this.selectedWord && this.selectedWord.cueIndex === index
+				? this.selectedWord.wordIndex
+				: null;
+		const next =
+			selected !== null && selected > 0
+				? splitCueBeforeWord(this.cues, index, selected)
+				: splitCueAtMidpoint(this.cues, index);
+		return this.applyCueEdit(next, '已拆成两句', '这一句太短，没法拆');
+	}
+
+	private nudgeActiveEdge(edge: 'start' | 'end', delta: number): Promise<void> {
+		return this.applyCueEdit(
+			nudgeCueEdge(this.cues, this.activeIndex, edge, delta),
+			'已调整时间',
+			'没法再调了',
+		);
+	}
+
+	private async applyCueEdit(
+		next: Cue[] | null,
+		ok: string,
+		emptyHint: string,
+	): Promise<void> {
+		if (this.activeIndex < 0) {
+			new Notice('先点一句字幕再编辑');
+			return;
+		}
+		if (!next) {
+			new Notice(emptyHint);
+			return;
+		}
+		this.cues = next;
+		this.closeWordLookup();
+		this.renderCues();
+		const keep = Math.min(this.activeIndex, this.cues.length - 1);
+		const cue = this.cues[keep];
+		if (cue) {
+			this.playSentence(cue);
+		} else {
+			this.setActive(keep);
+		}
+		await this.persistEditedCues();
+		new Notice(ok);
+	}
+
+	private async persistEditedCues(): Promise<void> {
+		const file = this.currentSubtitle;
+		if (!file) {
+			new Notice('没有字幕文件，只改了当前这一次');
+			return;
+		}
+		const format = file.extension.toLowerCase() === 'srt' ? 'srt' : 'vtt';
+		const body = serializeSubtitles(this.cues, format);
+		await this.app.vault.modify(file, body);
+		const label = this.currentVideo?.name ?? this.currentYouTube?.title ?? file.name;
+		this.setStatus(`${label} · ${file.name} · ${this.cues.length} 句`);
+	}
+
 	private togglePlayback(): void {
 		if (this.mode === 'dictation') {
 			if (this.source.isPlaying()) {
@@ -1340,6 +1485,16 @@ export class ListenView extends ItemView {
 		}
 		if (key === 'Enter' && this.wordPopover.saveCurrent()) {
 			evt.preventDefault();
+			return;
+		}
+		if (key === 'm' || key === 'M') {
+			evt.preventDefault();
+			void this.mergeActiveWithNext();
+			return;
+		}
+		if (key === 's' || key === 'S') {
+			evt.preventDefault();
+			void this.splitActiveCue();
 			return;
 		}
 		if (key === '[') {

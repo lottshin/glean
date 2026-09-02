@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTimestamp, parseSubtitles, parseTimestamp } from '../src/media/srt';
+import { formatTimestamp, isGleanEditedSubtitles, parseSubtitles, parseTimestamp, serializeSubtitles } from '../src/media/srt';
 import { cueIndexAt } from '../src/media/cues';
 import type { Cue } from '../src/media/types';
 import { siblingSubtitlePaths } from '../src/media/paths';
@@ -101,6 +101,36 @@ describe('cueIndexAt', () => {
 	it('returns -1 before the first cue', () => {
 		expect(cueIndexAt([], 1)).toBe(-1);
 		expect(cueIndexAt(cues, -1)).toBe(-1);
+	});
+});
+
+describe('serializeSubtitles', () => {
+	it('round-trips vtt with the edited lock so parse skips nothing essential', () => {
+		const body = serializeSubtitles(
+			[
+				{ index: 0, start: 0, end: 2, text: 'Hey everyone' },
+				{ index: 1, start: 2, end: 4, text: 'I am Ingrid' },
+			],
+			'vtt',
+		);
+		expect(isGleanEditedSubtitles(body)).toBe(true);
+		expect(parseSubtitles(body).map((cue) => cue.text)).toEqual([
+			'Hey everyone',
+			'I am Ingrid',
+		]);
+	});
+
+	it('keeps the lock note on srt so listen will not re-split', () => {
+		const body = serializeSubtitles(
+			[{ index: 0, start: 1.5, end: 3, text: 'Hello' }],
+			'srt',
+		);
+		expect(isGleanEditedSubtitles(body)).toBe(true);
+		expect(parseSubtitles(body)[0]).toMatchObject({
+			start: 1.5,
+			end: 3,
+			text: 'Hello',
+		});
 	});
 });
 

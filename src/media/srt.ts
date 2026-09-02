@@ -118,6 +118,44 @@ export function parseSubtitles(input: string): Cue[] {
 	return cues;
 }
 
+/** Written into saved subtitle files so listen-load will not re-run auto-split. */
+export const GLEAN_EDITED_NOTE = 'NOTE glean-edited';
+
+export function isGleanEditedSubtitles(input: string): boolean {
+	return /NOTE\s+glean-edited\b/i.test(input);
+}
+
+function padClock(n: number, width = 2): string {
+	return n.toString().padStart(width, '0');
+}
+
+function formatClock(seconds: number, fractionSep: ',' | '.'): string {
+	const clamped = Math.max(0, seconds);
+	const hours = Math.floor(clamped / 3600);
+	const minutes = Math.floor((clamped % 3600) / 60);
+	const whole = Math.floor(clamped % 60);
+	const millis = Math.min(999, Math.round((clamped - Math.floor(clamped)) * 1000));
+	return `${padClock(hours)}:${padClock(minutes)}:${padClock(whole)}${fractionSep}${padClock(millis, 3)}`;
+}
+
+/**
+ * Serialize cues for writing back to the vault. Marks the file as user-edited
+ * so the next open will not re-run automatic clause splitting.
+ */
+export function serializeSubtitles(cues: Cue[], format: 'srt' | 'vtt'): string {
+	const blocks = cues.map((cue, index) => {
+		const stamp =
+			format === 'vtt'
+				? `${formatClock(cue.start, '.')} --> ${formatClock(cue.end, '.')}`
+				: `${formatClock(cue.start, ',')} --> ${formatClock(cue.end, ',')}`;
+		return `${index + 1}\n${stamp}\n${cue.text}`;
+	});
+	if (format === 'vtt') {
+		return `WEBVTT\n\n${GLEAN_EDITED_NOTE}\n\n${blocks.join('\n\n')}\n`;
+	}
+	return `${GLEAN_EDITED_NOTE}\n\n${blocks.join('\n\n')}\n`;
+}
+
 export function formatTimestamp(seconds: number): string {
 	const clamped = Math.max(0, seconds);
 	const h = Math.floor(clamped / 3600);
