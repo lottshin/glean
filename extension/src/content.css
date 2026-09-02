@@ -1,24 +1,30 @@
+/*
+ * The button is a transparent, full-height box; the visible pill is the inner
+ * span. Nothing here hard-codes the height of the player bar: the button copies
+ * what `.ytp-button` does (height: 100%) and centres the pill with flexbox, so
+ * the pill lines up with the native icons at any control-bar height.
+ */
+
 .glean-sync-btn,
 #glean-sync-button.glean-sync-btn {
 	--glean-btn-accent: #c9a962;
 	--glean-btn-accent-hover: #d9bb78;
 	--glean-btn-ink: #1c1608;
 	--glean-btn-error: #d64b3f;
+	--glean-btn-height: 30px;
+	--glean-btn-font-size: 12px;
 
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	box-sizing: border-box;
-	height: 30px;
-	min-width: 56px;
-	max-width: 220px;
-	padding: 0 13px;
+	padding: 0;
 	margin: 0 8px 0 0;
 	appearance: none;
-	border: 1px solid rgb(255 255 255 / 12%);
-	border-radius: 999px;
-	background: var(--glean-btn-accent);
-	color: var(--glean-btn-ink);
+	border: 0;
+	background: none;
+	box-shadow: none;
+	color: inherit;
 	font-family:
 		'Roboto',
 		-apple-system,
@@ -26,16 +32,30 @@
 		'Segoe UI',
 		'PingFang SC',
 		sans-serif;
-	font-size: 12px;
+	line-height: normal;
+	text-shadow: none;
+	cursor: pointer;
+	vertical-align: middle;
+}
+
+.glean-sync-btn .glean-sync-btn__pill {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	box-sizing: border-box;
+	height: var(--glean-btn-height);
+	min-width: 56px;
+	max-width: 220px;
+	padding: 0 12px;
+	border: 1px solid rgb(255 255 255 / 12%);
+	border-radius: 999px;
+	background: var(--glean-btn-accent);
+	color: var(--glean-btn-ink);
+	font-size: var(--glean-btn-font-size);
 	font-weight: 700;
 	line-height: 1;
 	letter-spacing: 0.02em;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	text-shadow: none;
-	vertical-align: middle;
-	cursor: pointer;
 	opacity: 0.95;
 	transition:
 		background-color 120ms ease,
@@ -44,31 +64,51 @@
 		transform 60ms ease;
 }
 
-.glean-sync-btn:hover {
+/* Lucide `wheat`, the plugin's brand mark; stroked with currentColor. */
+.glean-sync-btn .glean-sync-btn__icon {
+	flex: 0 0 auto;
+	width: 1.25em;
+	height: 1.25em;
+	display: block;
+	color: currentColor;
+}
+
+.glean-sync-btn .glean-sync-btn__label {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.glean-sync-btn:hover .glean-sync-btn__pill {
 	background: var(--glean-btn-accent-hover);
 	opacity: 1;
 	box-shadow: 0 1px 6px rgb(0 0 0 / 28%);
 }
 
-.glean-sync-btn:active {
+.glean-sync-btn:active .glean-sync-btn__pill {
 	transform: translateY(1px);
 	box-shadow: none;
 }
 
 .glean-sync-btn:focus-visible {
+	outline: none;
+}
+
+.glean-sync-btn:focus-visible .glean-sync-btn__pill {
 	outline: 2px solid #ffffff;
 	outline-offset: 2px;
 	opacity: 1;
 }
 
-.glean-sync-btn.is-error,
-#glean-sync-button.glean-sync-btn.is-error {
+.glean-sync-btn.is-error .glean-sync-btn__pill,
+#glean-sync-button.glean-sync-btn.is-error .glean-sync-btn__pill {
 	background: var(--glean-btn-error);
 	color: #ffffff;
 	border-color: rgb(255 255 255 / 18%);
 }
 
-.glean-sync-btn.is-error:hover {
+.glean-sync-btn.is-error:hover .glean-sync-btn__pill {
 	background: #e35d51;
 }
 
@@ -82,11 +122,13 @@
 
 .ytp-right-controls #glean-sync-button.glean-sync-btn,
 .ytp-chrome-controls #glean-sync-button.glean-sync-btn {
-	height: 28px;
-	/* Player bar is 48px and native buttons are top-aligned; (48-28)/2 = 10px centers the pill. */
+	--glean-btn-height: 26px;
+	--glean-btn-font-size: 11.5px;
+
+	/* Same trick as `.ytp-button`: fill the bar, then centre the pill inside. */
+	height: 100%;
+	align-self: stretch;
 	vertical-align: top;
-	margin: 10px 8px 0 0;
-	font-size: 11.5px;
 }
 
 /* Sitting under the video (#actions / #top-level-buttons-computed) on a light page. */
@@ -94,12 +136,16 @@
 @media (prefers-color-scheme: light) {
 	#actions #glean-sync-button.glean-sync-btn,
 	#top-level-buttons-computed #glean-sync-button.glean-sync-btn {
-		height: 36px;
+		--glean-btn-height: 36px;
+	}
+
+	#actions #glean-sync-button.glean-sync-btn .glean-sync-btn__pill,
+	#top-level-buttons-computed #glean-sync-button.glean-sync-btn .glean-sync-btn__pill {
 		border-color: rgb(0 0 0 / 10%);
 	}
 
-	#actions .glean-sync-btn:focus-visible,
-	#top-level-buttons-computed .glean-sync-btn:focus-visible {
+	#actions .glean-sync-btn:focus-visible .glean-sync-btn__pill,
+	#top-level-buttons-computed .glean-sync-btn:focus-visible .glean-sync-btn__pill {
 		outline-color: #0f0f0f;
 	}
 }
@@ -110,22 +156,24 @@
 		--glean-btn-accent: #d4b26a;
 		--glean-btn-accent-hover: #e2c37f;
 		--glean-btn-ink: #171105;
+	}
 
+	.glean-sync-btn .glean-sync-btn__pill {
 		border-color: rgb(255 255 255 / 10%);
 	}
 
 	#actions #glean-sync-button.glean-sync-btn,
 	#top-level-buttons-computed #glean-sync-button.glean-sync-btn {
-		height: 36px;
+		--glean-btn-height: 36px;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.glean-sync-btn {
+	.glean-sync-btn .glean-sync-btn__pill {
 		transition: none;
 	}
 
-	.glean-sync-btn:active {
+	.glean-sync-btn:active .glean-sync-btn__pill {
 		transform: none;
 	}
 }
