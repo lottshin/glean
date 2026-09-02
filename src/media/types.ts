@@ -9,12 +9,13 @@ export type MediaKind = 'local' | 'youtube' | 'bilibili';
 
 export interface MediaSource {
 	readonly kind: MediaKind;
-	attach(videoEl: HTMLVideoElement): void;
+	attach(container: HTMLElement): void;
 	detach(): void;
 	load(srcUrl: string, cues: Cue[]): Promise<void>;
 	play(): void;
 	pause(): void;
 	toggle(): void;
+	isPlaying(): boolean;
 	seekTo(seconds: number): void;
 	getCurrentTime(): number;
 	getDuration(): number;
@@ -24,6 +25,7 @@ export interface MediaSource {
 	onTimeUpdate(cb: (t: number) => void): () => void;
 	onPlay(cb: () => void): () => void;
 	onPause(cb: () => void): () => void;
+	onError(cb: (message: string) => void): () => void;
 }
 
 export const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v']);

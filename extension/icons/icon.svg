@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Glean app icon master.
+
+  The silhouette is Lucide `wheat` (ISC), the same mark the Obsidian ribbon and
+  the injected YouTube pill use, so all three read as one brand. Depth comes
+  from the tile (gradient, sheen, corner shade, bevel) and from embossing the
+  mark, not from redrawing it.
+
+  Rasterise with `npm run icons:build`.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="128" height="128" viewBox="0 0 128 128">
+	<defs>
+		<!-- Tile body: light gold at the top-left shoulder into a deeper amber
+		     at the bottom-right, so the square itself reads as a lit surface. -->
+		<linearGradient id="tile" x1="0.12" y1="0" x2="0.82" y2="1">
+			<stop offset="0" stop-color="#eed99f" />
+			<stop offset="0.38" stop-color="#d9b871" />
+			<stop offset="0.74" stop-color="#c39a4e" />
+			<stop offset="1" stop-color="#a87f38" />
+		</linearGradient>
+
+		<!-- Broad specular sheen over the upper half. -->
+		<linearGradient id="sheen" x1="0" y1="0" x2="0.25" y2="1">
+			<stop offset="0" stop-color="#fffaf0" stop-opacity="0.42" />
+			<stop offset="0.34" stop-color="#fff6e2" stop-opacity="0.14" />
+			<stop offset="0.62" stop-color="#ffffff" stop-opacity="0" />
+		</linearGradient>
+
+		<!-- Warm shade pooling in the bottom-right corner. -->
+		<radialGradient id="vignette" cx="0.8" cy="1.04" r="0.9">
+			<stop offset="0" stop-color="#5e400c" stop-opacity="0.42" />
+			<stop offset="0.5" stop-color="#6d4d13" stop-opacity="0.13" />
+			<stop offset="1" stop-color="#6d4d13" stop-opacity="0" />
+		</radialGradient>
+
+		<!-- 1.5px bevel: lit along the top edge, shaded along the bottom. -->
+		<linearGradient id="rim" x1="0.2" y1="0" x2="0.8" y2="1">
+			<stop offset="0" stop-color="#fff8e6" stop-opacity="0.66" />
+			<stop offset="0.45" stop-color="#ffffff" stop-opacity="0.08" />
+			<stop offset="1" stop-color="#4a340c" stop-opacity="0.3" />
+		</linearGradient>
+
+		<!-- Espresso mark, lighter where the light hits it. Anchored in the
+		     mark's own 24-unit space so every grain shares one light direction
+		     instead of each getting its own ramp. -->
+		<linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="3" y1="1" x2="17" y2="23">
+			<stop offset="0" stop-color="#54401a" />
+			<stop offset="0.5" stop-color="#382a0e" />
+			<stop offset="1" stop-color="#241a06" />
+		</linearGradient>
+
+		<filter id="markShadow" x="-25%" y="-25%" width="150%" height="150%">
+			<feGaussianBlur stdDeviation="2.4" />
+		</filter>
+
+		<!--
+		  Lucide `wheat`, vertex for vertex, drawn as outlines rather than solids:
+		  the grains overlap their neighbours by design, so filling them fuses the
+		  ear into one shapeless mass. Paint is inherited from each <use>.
+		-->
+		<g id="wheat" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M2 22 16 8" />
+			<path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" />
+			<path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" />
+			<path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" />
+			<path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" />
+			<path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" />
+			<path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" />
+			<path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" />
+		</g>
+	</defs>
+
+	<rect width="128" height="128" rx="28" fill="url(#tile)" />
+	<rect width="128" height="128" rx="28" fill="url(#vignette)" />
+	<rect width="128" height="128" rx="28" fill="url(#sheen)" />
+
+	<!-- Mark, lit from the top-left: cast shadow below, rim highlight above. -->
+	<g transform="translate(18 18) scale(3.8333)">
+		<g transform="translate(0.26 0.6)" filter="url(#markShadow)" opacity="0.38">
+			<use href="#wheat" xlink:href="#wheat" stroke="#33240a" />
+		</g>
+		<g transform="translate(-0.16 -0.3)" opacity="0.55">
+			<use href="#wheat" xlink:href="#wheat" stroke="#fff4d4" />
+		</g>
+		<use href="#wheat" xlink:href="#wheat" stroke="url(#mark)" />
+	</g>
+
+	<rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.25" fill="none" stroke="url(#rim)" stroke-width="1.5" />
+</svg>

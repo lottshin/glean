@@ -1,5 +1,6 @@
-import { ItemView, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
-import type EchoPlugin from '../main';
+import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import { normalizeDictionaryKey } from '../dictionary';
+import type GleanPlugin from '../main';
 import { cueIndexAt } from '../media/cues';
 import {
 	buildDictCells,
@@ -10,7 +11,16 @@ import {
 } from '../media/dictation';
 import { LocalFileSource } from '../media/local';
 import { MediaSuggestModal } from '../media/picker';
-import { formatTimestamp, parseSubtitles } from '../media/srt';
+import {
+	mergeCueWithNext,
+	splitCueBeforeWord,
+} from '../media/cue-edit';
+import {
+	formatTimestamp,
+	isGleanEditedSubtitles,
+	parseSubtitles,
+	serializeSubtitles,
+} from '../media/srt';
 import { findSiblingSubtitle } from '../media/subtitles';
 import { tokenizeSubtitle } from '../media/subtitle-tokens';
 import {
@@ -18,30 +28,57 @@ import {
 	MEDIA_EXTENSIONS,
 	PLAYBACK_RATES,
 	type Cue,
+	type MediaKind,
+	type MediaSource,
 } from '../media/types';
-import { EchoWordPopover } from './word-popup';
+import { YouTubeSource } from '../media/youtube';
+import { youtubeSourcePath } from '../youtube/id';
+import { refineCaptionCues } from '../youtube/vtt';
+import { GleanWordPopover } from './word-popup';
+export const LISTEN_VIEW_TYPE = 'glean-listen';
 
-export const LISTEN_VIEW_TYPE = 'echo-listen';
-
-export type EchoViewMode = 'listen' | 'dictation';
+export type GleanViewMode = 'listen' | 'dictation';
 
 export interface ListenState {
-	videoPath: string;
-	subtitlePath: string | null;
+	kind?: MediaKind;
+	videoPath?: string;
+	videoId?: string;
+	title?: string;
+	subtitlePath?: string | null;
 	seekTo?: number;
-	mode?: EchoViewMode;
+	mode?: GleanViewMode;
 }
 
 type DictCellView = DictCell & { span: HTMLElement };
 
+/** Apply the latest clause heal/split when opening an already-saved VTT. */
+function refineListenCues(cues: Cue[]): Cue[] {
+	return refineCaptionCues(cues).map((cue, index) => ({
+		index,
+		start: cue.start,
+		end: cue.end,
+		text: cue.text,
+	}));
+}
+
+/** Manual edits write a lock note so we do not undo them on the next open. */
+function cuesFromSubtitleBody(raw: string): Cue[] {
+	const parsed = parseSubtitles(raw);
+	if (isGleanEditedSubtitles(raw)) {
+		return parsed;
+	}
+	return refineListenCues(parsed);
+}
+
 /**
- * Echo listen view.
+ * Glean listen view.
  * Default mode is intensive listening (current sentence + cue list).
  * Dictation is an explicit mode switch, not a permanent second panel.
  */
 export class ListenView extends ItemView {
-	plugin: EchoPlugin;
-	private source = new LocalFileSource();
+	plugin: GleanPlugin;
+	private source: MediaSource = new LocalFileSource();
+	private mediaHostEl: HTMLElement | null = null;
 	private videoEl: HTMLVideoElement | null = null;
 	private cueListEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
@@ -56,13 +93,14 @@ export class ListenView extends ItemView {
 	private unsubs: Array<() => void> = [];
 	private currentVideo: TFile | null = null;
 	private currentSubtitle: TFile | null = null;
+	private currentYouTube: { videoId: string; title: string } | null = null;
 	private sentenceMode = false;
 	/** True only after the playhead has entered the target sentence (avoids seek race). */
 	private sentenceArmed = false;
 	private sentenceStart = 0;
 	private sentenceEnd = 0;
 	private pendingSeek: number | null = null;
-	private mode: EchoViewMode = 'listen';
+	private mode: GleanViewMode = 'listen';
 	/** In dictation mode: whether the original sentence is hidden. */
 	private hidden = true;
 	private selectedWord: {
@@ -72,7 +110,7 @@ export class ListenView extends ItemView {
 	} | null = null;
 	private lookupSequence = 0;
 	private lookupOpenTimer: number | null = null;
-	private wordPopover = new EchoWordPopover();
+	private wordPopover = new GleanWordPopover();
 	private focusEl: HTMLElement | null = null;
 	private focusTextEl: HTMLElement | null = null;
 	private focusMetaEl: HTMLElement | null = null;
@@ -91,7 +129,7 @@ export class ListenView extends ItemView {
 	private audioSubEl: HTMLElement | null = null;
 	private splitDragging = false;
 
-	constructor(leaf: WorkspaceLeaf, plugin: EchoPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: GleanPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -101,7 +139,8 @@ export class ListenView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return this.currentVideo ? `Echo · ${this.currentVideo.basename}` : 'Echo 精听';
+		const title = this.currentVideo?.basename ?? this.currentYouTube?.title;
+		return title ? `Glean · ${title}` : 'Glean 精听';
 	}
 
 	getIcon(): string {
@@ -118,6 +157,18 @@ export class ListenView extends ItemView {
 	}
 
 	async openMedia(state: ListenState): Promise<void> {
+		if (state.kind === 'youtube' || state.videoId) {
+			if (!state.videoId) {
+				this.setStatus('缺少 YouTube 视频 ID');
+				return;
+			}
+			await this.openYouTubeMedia(state);
+			return;
+		}
+		if (!state.videoPath) {
+			this.setStatus('请选择媒体文件');
+			return;
+		}
 		const video = this.app.vault.getAbstractFileByPath(state.videoPath);
 		if (!(video instanceof TFile) || !MEDIA_EXTENSIONS.has(video.extension.toLowerCase())) {
 			this.setStatus(`找不到媒体：${state.videoPath}`);
@@ -145,65 +196,65 @@ export class ListenView extends ItemView {
 	private renderShell(): void {
 		const root = this.contentEl;
 		root.empty();
-		root.addClass('echo-listen');
+		root.addClass('glean-listen');
 		root.tabIndex = 0;
 
-		const toolbar = root.createDiv({ cls: 'echo-toolbar' });
+		const toolbar = root.createDiv({ cls: 'glean-toolbar' });
 
-		const transport = toolbar.createDiv({ cls: 'echo-toolbar-group' });
-		this.playBtn = transport.createEl('button', { text: '播放', cls: 'echo-btn echo-btn-primary' });
+		const transport = toolbar.createDiv({ cls: 'glean-toolbar-group' });
+		this.playBtn = transport.createEl('button', { text: '播放', cls: 'glean-btn glean-btn-primary' });
 		this.playBtn.addEventListener('click', () => this.togglePlayback());
 
 		const replayBtn = transport.createEl('button', {
 			text: '重听',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '重听本句 (R)' },
 		});
 		replayBtn.addEventListener('click', () => this.replayCurrent());
 
 		const prevBtn = transport.createEl('button', {
 			text: '上一句',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '[' },
 		});
 		prevBtn.addEventListener('click', () => this.jumpBy(-1));
 
 		const nextBtn = transport.createEl('button', {
 			text: '下一句',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: ']' },
 		});
 		nextBtn.addEventListener('click', () => this.jumpBy(1));
 
-		const modes = toolbar.createDiv({ cls: 'echo-toolbar-group echo-mode-group' });
+		const modes = toolbar.createDiv({ cls: 'glean-toolbar-group glean-mode-group' });
 		this.modeListenBtn = modes.createEl('button', {
 			text: '精听',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '精听模式：看字幕、点句重听（默认）' },
 		});
 		this.modeListenBtn.addEventListener('click', () => this.setMode('listen'));
 		this.modeDictBtn = modes.createEl('button', {
 			text: '听写',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '听写模式：隐藏原句并实时匹配' },
 		});
 		this.modeDictBtn.addEventListener('click', () => this.setMode('dictation'));
 
-		const opts = toolbar.createDiv({ cls: 'echo-toolbar-group' });
+		const opts = toolbar.createDiv({ cls: 'glean-toolbar-group' });
 		const openBtn = opts.createEl('button', {
 			text: '打开',
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '打开视频或音频' },
 		});
 		openBtn.addEventListener('click', () => this.openMediaPicker());
 
 		this.hideBtn = opts.createEl('button', {
-			cls: 'echo-btn',
+			cls: 'glean-btn',
 			attr: { title: '显示 / 隐藏原句 (H)·仅听写模式' },
 		});
 		this.hideBtn.addEventListener('click', () => this.toggleHidden());
 
-		const rateSelect = opts.createEl('select', { cls: 'echo-rate', attr: { title: '倍速' } });
+		const rateSelect = opts.createEl('select', { cls: 'glean-rate', attr: { title: '倍速' } });
 		for (const rate of PLAYBACK_RATES) {
 			rateSelect.createEl('option', {
 				text: `${rate}×`,
@@ -215,72 +266,67 @@ export class ListenView extends ItemView {
 			this.source.setPlaybackRate(Number(rateSelect.value));
 		});
 
-		const meta = toolbar.createDiv({ cls: 'echo-toolbar-meta' });
-		this.timeEl = meta.createSpan({ cls: 'echo-time', text: '00:00 / 00:00' });
-		this.statusEl = meta.createSpan({ cls: 'echo-status', text: '打开媒体开始精听' });
+		const meta = toolbar.createDiv({ cls: 'glean-toolbar-meta' });
+		this.timeEl = meta.createSpan({ cls: 'glean-time', text: '00:00 / 00:00' });
+		this.statusEl = meta.createSpan({ cls: 'glean-status', text: '打开媒体开始精听' });
 
-		const body = root.createDiv({ cls: 'echo-body' });
+		const body = root.createDiv({ cls: 'glean-body' });
 
-		this.playerPaneEl = body.createDiv({ cls: 'echo-player-pane' });
-		const stage = this.playerPaneEl.createDiv({ cls: 'echo-player-stage' });
+		this.playerPaneEl = body.createDiv({ cls: 'glean-player-pane' });
+		const stage = this.playerPaneEl.createDiv({ cls: 'glean-player-stage' });
 
-		const empty = stage.createDiv({ cls: 'echo-player-empty' });
-		empty.createDiv({ cls: 'echo-player-empty-title', text: '还没有媒体' });
+		const empty = stage.createDiv({ cls: 'glean-player-empty' });
+		empty.createDiv({ cls: 'glean-player-empty-title', text: '还没有媒体' });
 		empty.createDiv({
-			cls: 'echo-player-empty-detail',
+			cls: 'glean-player-empty-detail',
 			text: '打开 vault 里的视频或音频。字幕放同目录同名 .srt / .vtt。',
 		});
 		const emptyOpen = empty.createEl('button', {
 			text: '打开媒体',
-			cls: 'echo-btn echo-btn-primary',
+			cls: 'glean-btn glean-btn-primary',
 		});
 		emptyOpen.addEventListener('click', () => this.openMediaPicker());
 
-		const audioCard = stage.createDiv({ cls: 'echo-audio-card' });
-		audioCard.createDiv({ cls: 'echo-audio-icon', text: '♪' });
-		const audioMeta = audioCard.createDiv({ cls: 'echo-audio-meta' });
-		this.audioTitleEl = audioMeta.createDiv({ cls: 'echo-audio-title', text: '' });
-		this.audioSubEl = audioMeta.createDiv({ cls: 'echo-audio-sub', text: '音频精听' });
+		const audioCard = stage.createDiv({ cls: 'glean-audio-card' });
+		audioCard.createDiv({ cls: 'glean-audio-icon', text: '♪' });
+		const audioMeta = audioCard.createDiv({ cls: 'glean-audio-meta' });
+		this.audioTitleEl = audioMeta.createDiv({ cls: 'glean-audio-title', text: '' });
+		this.audioSubEl = audioMeta.createDiv({ cls: 'glean-audio-sub', text: '音频精听' });
 
-		this.videoEl = stage.createEl('video', { cls: 'echo-video' });
-		this.videoEl.controls = true;
-		this.videoEl.preload = 'metadata';
-		this.videoEl.muted = false;
-		this.videoEl.volume = 1;
-		this.videoEl.addEventListener('loadedmetadata', () => this.syncMediaChrome());
+		this.mediaHostEl = stage.createDiv({ cls: 'glean-media-host' });
 
-		const veil = stage.createDiv({ cls: 'echo-video-veil' });
-		veil.createDiv({ cls: 'echo-video-veil-title', text: '听写中' });
+		const veil = stage.createDiv({ cls: 'glean-video-veil' });
+		veil.createDiv({ cls: 'glean-video-veil-title', text: '听写中' });
 		veil.createDiv({
-			cls: 'echo-video-veil-detail',
+			cls: 'glean-video-veil-detail',
 			text: '画面已遮挡，避免视频内烧录字幕泄题。声音照常，用上方按钮控制播放。',
 		});
 
 		const splitter = body.createDiv({
-			cls: 'echo-splitter',
+			cls: 'glean-splitter',
 			attr: { title: '拖动调整播放器高度' },
 		});
 		this.bindSplitter(splitter);
 
-		const side = body.createDiv({ cls: 'echo-side' });
+		const side = body.createDiv({ cls: 'glean-side' });
 
-		this.focusEl = side.createDiv({ cls: 'echo-focus' });
-		this.focusMetaEl = this.focusEl.createDiv({ cls: 'echo-focus-meta', text: '当前句' });
+		this.focusEl = side.createDiv({ cls: 'glean-focus' });
+		this.focusMetaEl = this.focusEl.createDiv({ cls: 'glean-focus-meta', text: '当前句' });
 		this.focusTextEl = this.focusEl.createDiv({
-			cls: 'echo-focus-text',
+			cls: 'glean-focus-text',
 			text: '播放或点一句开始精听。',
 		});
 
-		this.dictPanelEl = side.createDiv({ cls: 'echo-dict-panel' });
-		const dictHead = this.dictPanelEl.createDiv({ cls: 'echo-dict-head' });
-		dictHead.createSpan({ cls: 'echo-dict-kicker', text: '听写' });
+		this.dictPanelEl = side.createDiv({ cls: 'glean-dict-panel' });
+		const dictHead = this.dictPanelEl.createDiv({ cls: 'glean-dict-head' });
+		dictHead.createSpan({ cls: 'glean-dict-kicker', text: '听写' });
 		this.dictHintEl = dictHead.createDiv({
-			cls: 'echo-dict-hint',
+			cls: 'glean-dict-hint',
 			text: '隐藏原句，敲下听到的内容。',
 		});
-		this.dictEl = this.dictPanelEl.createDiv({ cls: 'echo-dict-cells' });
+		this.dictEl = this.dictPanelEl.createDiv({ cls: 'glean-dict-cells' });
 		this.inputEl = this.dictPanelEl.createEl('input', {
-			cls: 'echo-dict-input',
+			cls: 'glean-dict-input',
 			attr: {
 				type: 'text',
 				placeholder: '敲下听到的内容，这里会留下你的输入…',
@@ -292,21 +338,20 @@ export class ListenView extends ItemView {
 		this.inputEl.addEventListener('input', () => this.onDictInput());
 		this.inputEl.addEventListener('keydown', (evt) => this.onDictKey(evt));
 
-		const cuesWrap = side.createDiv({ cls: 'echo-cues-wrap' });
-		cuesWrap.createDiv({ cls: 'echo-cues-label', text: '字幕' });
-		this.cueListEl = cuesWrap.createDiv({ cls: 'echo-cues' });
+		const cuesWrap = side.createDiv({ cls: 'glean-cues-wrap' });
+		const cuesHead = cuesWrap.createDiv({ cls: 'glean-cues-head' });
+		cuesHead.createDiv({ cls: 'glean-cues-label', text: '字幕' });
+		cuesHead.createDiv({
+			cls: 'glean-cue-edit-hint',
+			text: '词间点一下断句 · 行首 ⌫ 并入上一行',
+		});
+		this.cueListEl = cuesWrap.createDiv({ cls: 'glean-cues' });
 		this.renderEmptyCues(
 			'还没有字幕',
 			'打开媒体后，同目录同名的 .srt / .vtt 会自动挂上。',
 		);
 
-		this.source.attach(this.videoEl);
-		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
-		this.unsubs.push(
-			this.source.onTimeUpdate((t) => this.onTick(t)),
-			this.source.onPlay(() => this.syncPlayButton()),
-			this.source.onPause(() => this.syncPlayButton()),
-		);
+		this.bindSource(this.source);
 
 		this.syncModeChrome();
 		this.syncMediaChrome();
@@ -319,7 +364,36 @@ export class ListenView extends ItemView {
 		}).open();
 	}
 
-	private setMode(mode: EchoViewMode): void {
+	private bindSource(source: MediaSource): void {
+		for (const unsubscribe of this.unsubs) {
+			unsubscribe();
+		}
+		this.unsubs = [];
+		this.source.detach();
+		this.source = source;
+		if (!this.mediaHostEl) {
+			return;
+		}
+		this.source.attach(this.mediaHostEl);
+		this.videoEl = this.mediaHostEl.querySelector('video');
+		this.videoEl?.addEventListener('loadedmetadata', () => this.syncMediaChrome());
+		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
+		this.unsubs.push(
+			this.source.onTimeUpdate((time) => this.onTick(time)),
+			this.source.onPlay(() => this.syncPlayButton()),
+			this.source.onPause(() => this.syncPlayButton()),
+			this.source.onError((message) => this.setStatus(message)),
+		);
+	}
+
+	private ensureSource(kind: 'local' | 'youtube'): void {
+		if (this.source.kind === kind) {
+			return;
+		}
+		this.bindSource(kind === 'youtube' ? new YouTubeSource() : new LocalFileSource());
+	}
+
+	private setMode(mode: GleanViewMode): void {
 		if (this.mode === mode) {
 			return;
 		}
@@ -359,7 +433,7 @@ export class ListenView extends ItemView {
 			if (!this.splitDragging || !this.playerPaneEl) {
 				return;
 			}
-			const body = this.contentEl.querySelector('.echo-body');
+			const body = this.contentEl.querySelector('.glean-body');
 			if (!(body instanceof HTMLElement)) {
 				return;
 			}
@@ -369,8 +443,10 @@ export class ListenView extends ItemView {
 			}
 			const px = evt.clientY - rect.top;
 			const clamped = Math.min(rect.height * 0.7, Math.max(100, px));
-			this.playerPaneEl.style.flex = `0 0 ${clamped}px`;
-			this.playerPaneEl.style.maxHeight = 'none';
+			this.playerPaneEl.addClass('is-resized');
+			this.playerPaneEl.setCssProps({
+				'--glean-player-height': `${clamped}px`,
+			});
 		};
 		const onUp = () => {
 			if (!this.splitDragging) {
@@ -395,21 +471,26 @@ export class ListenView extends ItemView {
 			return;
 		}
 		this.cueListEl.empty();
-		const empty = this.cueListEl.createDiv({ cls: 'echo-empty' });
-		empty.createDiv({ cls: 'echo-empty-title', text: title });
-		empty.createDiv({ cls: 'echo-empty-detail', text: detail });
+		const empty = this.cueListEl.createDiv({ cls: 'glean-empty' });
+		empty.createDiv({ cls: 'glean-empty-title', text: title });
+		empty.createDiv({ cls: 'glean-empty-detail', text: detail });
 	}
 
 	private syncMediaChrome(): void {
 		const root = this.contentEl;
-		const has = !!this.currentVideo;
+		const has = !!this.currentVideo || !!this.currentYouTube;
 		root.toggleClass('has-media', has);
+		root.toggleClass('is-youtube', this.currentYouTube !== null);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
 		root.toggleClass('is-audio', isAudio);
 
 		let isPortrait = false;
-		if (this.videoEl && this.videoEl.videoWidth > 0 && this.videoEl.videoHeight > 0) {
+		if (
+			this.videoEl instanceof HTMLVideoElement &&
+			this.videoEl.videoWidth > 0 &&
+			this.videoEl.videoHeight > 0
+		) {
 			isPortrait = this.videoEl.videoHeight > this.videoEl.videoWidth;
 		}
 		root.toggleClass('is-portrait', isPortrait && !isAudio);
@@ -425,9 +506,10 @@ export class ListenView extends ItemView {
 	}
 
 	private async loadFiles(video: TFile, subtitle: TFile | null): Promise<void> {
-		if (!this.videoEl) {
+		if (!this.mediaHostEl) {
 			return;
 		}
+		this.ensureSource('local');
 
 		this.closeWordLookup();
 		this.sentenceMode = false;
@@ -440,30 +522,26 @@ export class ListenView extends ItemView {
 		let cues: Cue[] = [];
 		if (subtitle) {
 			const raw = await this.app.vault.read(subtitle);
-			cues = parseSubtitles(raw);
+			cues = cuesFromSubtitleBody(raw);
 		}
 
 		try {
 			await this.source.load(srcUrl, cues);
 		} catch {
 			this.currentVideo = null;
+			this.currentYouTube = null;
 			this.currentSubtitle = null;
 			this.syncMediaChrome();
 			this.setStatus('媒体无法播放。试试 mp4 / webm / mp3 / m4a。');
 			return;
 		}
 
-		if (this.videoEl) {
-			this.videoEl.muted = false;
-			this.videoEl.volume = 1;
-		}
-
 		if (this.playerPaneEl) {
-			this.playerPaneEl.style.removeProperty('flex');
-			this.playerPaneEl.style.removeProperty('max-height');
+			this.playerPaneEl.removeClass('is-resized');
 		}
 
 		this.currentVideo = video;
+		this.currentYouTube = null;
 		this.currentSubtitle = subtitle;
 		this.cues = cues;
 		this.activeIndex = -1;
@@ -491,6 +569,81 @@ export class ListenView extends ItemView {
 		this.contentEl.focus({ preventScroll: true });
 	}
 
+	private async openYouTubeMedia(state: ListenState): Promise<void> {
+		if (!this.mediaHostEl || !state.videoId) {
+			return;
+		}
+		let subtitle: TFile | null = null;
+		if (state.subtitlePath) {
+			const found = this.app.vault.getAbstractFileByPath(state.subtitlePath);
+			if (found instanceof TFile) {
+				subtitle = found;
+			}
+		}
+		if (!subtitle) {
+			this.setStatus('找不到 YouTube 字幕文件');
+			return;
+		}
+
+		const cues = cuesFromSubtitleBody(await this.app.vault.read(subtitle));
+		if (cues.length === 0) {
+			this.setStatus('YouTube 字幕为空或格式无效');
+			return;
+		}
+
+		this.closeWordLookup();
+		this.sentenceMode = false;
+		this.sentenceArmed = false;
+		this.ensureSource('youtube');
+		this.source.pause();
+		this.setStatus('正在连接 YouTube…');
+		if (state.seekTo !== undefined) {
+			this.pendingSeek = state.seekTo;
+		}
+		if (state.mode === 'listen' || state.mode === 'dictation') {
+			this.mode = state.mode;
+		}
+
+		try {
+			await this.source.load(state.videoId, cues);
+		} catch (error) {
+			this.currentVideo = null;
+			this.currentYouTube = null;
+			this.currentSubtitle = null;
+			this.syncMediaChrome();
+			this.setStatus(error instanceof Error ? error.message : 'YouTube 播放失败');
+			return;
+		}
+
+		this.currentVideo = null;
+		this.currentYouTube = {
+			videoId: state.videoId,
+			title: state.title?.trim() || state.videoId,
+		};
+		this.currentSubtitle = subtitle;
+		this.cues = cues;
+		this.activeIndex = -1;
+		this.clearAdvanceTimer();
+		this.syncMediaChrome();
+		this.syncModeChrome();
+		this.renderCues();
+		this.refreshFocus();
+		if (this.mode === 'dictation') {
+			this.loadDictationForActive();
+		}
+		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
+		if (this.pendingSeek !== null) {
+			this.source.seekTo(this.pendingSeek);
+			this.pendingSeek = null;
+		}
+		this.setStatus(
+			`${this.currentYouTube.title} · ${subtitle.name} · ${cues.length} 句`,
+		);
+		this.updateTime(this.source.getCurrentTime());
+		this.app.workspace.requestSaveLayout();
+		this.contentEl.focus({ preventScroll: true });
+	}
+
 	private renderCues(): void {
 		if (!this.cueListEl) {
 			return;
@@ -505,9 +658,9 @@ export class ListenView extends ItemView {
 		}
 
 		for (const cue of this.cues) {
-			const row = this.cueListEl.createDiv({ cls: 'echo-cue' });
-			row.createSpan({ cls: 'echo-cue-time', text: formatTimestamp(cue.start) });
-			const textEl = row.createSpan({ cls: 'echo-cue-text' });
+			const row = this.cueListEl.createDiv({ cls: 'glean-cue' });
+			row.createSpan({ cls: 'glean-cue-time', text: formatTimestamp(cue.start) });
+			const textEl = row.createSpan({ cls: 'glean-cue-text' });
 			this.renderCueText(textEl, cue);
 			row.addEventListener('click', () => {
 				this.playSentence(cue);
@@ -517,14 +670,49 @@ export class ListenView extends ItemView {
 	}
 
 	private renderCueText(textEl: HTMLElement, cue: Cue): void {
-		this.renderCueTokens(textEl, cue, 'echo-word');
+		this.renderCueTokens(textEl, cue, 'glean-word', true);
+	}
+
+	/** A clickable gap between two words: click to split the cue here. */
+	private appendCutSlot(
+		host: HTMLElement,
+		cueIndex: number,
+		wordIndex: number,
+		gap: string,
+	): void {
+		const slot = host.createSpan({
+			cls: 'glean-cut-slot',
+			text: gap.length > 0 ? gap : ' ',
+			attr: { role: 'button', 'aria-label': '在此断句', title: '在此断句' },
+		});
+		slot.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.splitCueBefore(cueIndex, wordIndex);
+		});
+	}
+
+	/** A line-start affordance: click to merge this cue into the previous one. */
+	private appendMergeSlot(host: HTMLElement, cueIndex: number): void {
+		const slot = host.createSpan({
+			cls: 'glean-merge-slot',
+			attr: { role: 'button', 'aria-label': '并入上一行', title: '并入上一行' },
+		});
+		slot.addEventListener('click', (evt) => {
+			evt.stopPropagation();
+			void this.mergeCueWithPrevious(cueIndex);
+		});
 	}
 
 	/**
 	 * Words stay clickable in every mode as long as the real sentence is on
 	 * screen; a masked sentence is rendered as plain text.
 	 */
-	private renderCueTokens(host: HTMLElement, cue: Cue, cls: string): void {
+	private renderCueTokens(
+		host: HTMLElement,
+		cue: Cue,
+		cls: string,
+		editable = false,
+	): void {
 		host.empty();
 		const shown = this.displayCueText(cue);
 		if (shown !== cue.text) {
@@ -532,9 +720,25 @@ export class ListenView extends ItemView {
 			return;
 		}
 
+		const tokens = [...tokenizeSubtitle(cue.text)];
+		const totalWords = tokens.filter(
+			(token) => token.kind !== 'separator' && token.lookup,
+		).length;
+		if (editable && cue.index > 0) {
+			this.appendMergeSlot(host, cue.index);
+		}
+
 		let wordIndex = 0;
-		for (const token of tokenizeSubtitle(cue.text)) {
-			if (token.kind === 'separator' || !token.lookup) {
+		for (const token of tokens) {
+			if (token.kind === 'separator') {
+				if (editable && wordIndex > 0 && wordIndex < totalWords) {
+					this.appendCutSlot(host, cue.index, wordIndex, token.text);
+				} else {
+					host.appendText(token.text);
+				}
+				continue;
+			}
+			if (!token.lookup) {
 				host.appendText(token.text);
 				continue;
 			}
@@ -548,8 +752,8 @@ export class ListenView extends ItemView {
 					role: 'button',
 					tabindex: '-1',
 					'aria-label': `查词：${token.lookup}`,
-					'data-echo-cue-index': String(cue.index),
-					'data-echo-word-index': String(index),
+					'data-glean-cue-index': String(cue.index),
+					'data-glean-word-index': String(index),
 				},
 			});
 			if (
@@ -607,14 +811,98 @@ export class ListenView extends ItemView {
 		const lookupId = ++this.lookupSequence;
 		this.selectedWord = { cueIndex: cue.index, wordIndex, lookupId };
 		this.paintWordSelection(previous, this.selectedWord);
+		const initialCard = this.plugin.findLexiconCard(word);
+		const sourceName =
+			this.currentVideo?.name ?? this.currentYouTube?.title ?? '当前媒体';
+		const sourcePath = this.currentVideo
+			? this.currentVideo.path
+			: this.currentYouTube
+				? youtubeSourcePath(this.currentYouTube.videoId)
+				: null;
 		this.wordPopover.open(anchor, {
 			lookupId,
 			word,
 			sentence: cue.text,
-			sourceName: this.currentVideo?.name ?? '当前媒体',
+			sourceName,
 			timeLabel: formatTimestamp(cue.start),
+			inLexicon: initialCard !== null,
+			status: initialCard?.status,
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
+			onSave: async (lookup) => {
+				if (!sourcePath) {
+					throw new Error('没有来源媒体');
+				}
+				const resolved = lookup ?? {
+					surface: word,
+					lemma: normalizeDictionaryKey(word),
+					match: 'missing' as const,
+					entry: null,
+				};
+				try {
+					return await this.plugin.saveWord({
+						lookup: resolved,
+						context: {
+							sentence: cue.text,
+							sourcePath,
+							sourceName,
+							time: cue.start,
+							timeLabel: formatTimestamp(cue.start),
+						},
+					});
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '生词保存失败');
+					throw error;
+				}
+			},
+			onRemove: async (lookup) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				try {
+					const removed = await this.plugin.removeWord(lemma);
+					if (!removed) {
+						throw new Error('找不到对应的生词笔记');
+					}
+					new Notice(`已将 ${lemma} 移到废纸篓`);
+					return true;
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '移出生词失败');
+					throw error;
+				}
+			},
+			onOpenNote: async (lookup) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				const opened = await this.plugin.openWordNote(lemma);
+				if (!opened) {
+					new Notice('找不到对应的生词笔记');
+				}
+				return opened;
+			},
+			onStatus: async (lookup, status) => {
+				const lemma = lookup?.lemma ?? normalizeDictionaryKey(word);
+				try {
+					const updated = await this.plugin.setWordStatus(lemma, status);
+					if (!updated) {
+						new Notice('找不到对应的生词笔记');
+					}
+					return updated;
+				} catch (error) {
+					new Notice(error instanceof Error ? error.message : '更新生词状态失败');
+					throw error;
+				}
+			},
 		});
+		void this.plugin
+			.lookupWord(word)
+			.then((lookup) => {
+				const key = lookup?.lemma ?? word;
+				const card = this.plugin.findLexiconCard(key);
+				this.wordPopover.update(
+					lookupId,
+					lookup,
+					card !== null,
+					card?.status,
+				);
+			})
+			.catch(() => this.wordPopover.update(lookupId, null));
 	}
 
 	/** The highlight only lives as long as the lookup it belongs to. */
@@ -649,7 +937,7 @@ export class ListenView extends ItemView {
 	private wordElements(cueIndex: number, wordIndex: number): HTMLElement[] {
 		return Array.from(
 			this.contentEl.querySelectorAll<HTMLElement>(
-				`[data-echo-cue-index="${cueIndex}"][data-echo-word-index="${wordIndex}"]`,
+				`[data-glean-cue-index="${cueIndex}"][data-glean-word-index="${wordIndex}"]`,
 			),
 		);
 	}
@@ -710,7 +998,7 @@ export class ListenView extends ItemView {
 			if (!cue || !row) {
 				continue;
 			}
-			const textEl = row.querySelector('.echo-cue-text');
+			const textEl = row.querySelector('.glean-cue-text');
 			if (textEl instanceof HTMLElement) {
 				this.renderCueText(textEl, cue);
 			}
@@ -740,7 +1028,7 @@ export class ListenView extends ItemView {
 			this.focusTextEl.setText('播放或点一句开始精听。下一里程碑：点词查义与入库。');
 			return;
 		}
-		this.renderCueTokens(this.focusTextEl, cue, 'echo-word echo-focus-word');
+		this.renderCueTokens(this.focusTextEl, cue, 'glean-word glean-focus-word');
 	}
 
 	private onTick(t: number): void {
@@ -764,7 +1052,7 @@ export class ListenView extends ItemView {
 		// Dictation always stops at the active sentence end (even if continuous play slipped in).
 		if (this.mode === 'dictation' && this.activeIndex >= 0) {
 			const cue = this.cues[this.activeIndex];
-			if (cue && t >= cue.end - 0.05 && this.videoEl && !this.videoEl.paused) {
+			if (cue && t >= cue.end - 0.05 && this.source.isPlaying()) {
 				this.source.pause();
 				this.focusDictInput();
 				return;
@@ -825,7 +1113,11 @@ export class ListenView extends ItemView {
 			return;
 		}
 
-		const hideHint = this.hidden ? '原句已隐藏 · H 显示' : '原句可见 · H 隐藏';
+		const hideHint = this.currentYouTube
+			? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
+			: this.hidden
+				? '原句已隐藏 · H 显示'
+				: '原句可见 · H 隐藏';
 		this.dictHintEl.setText(
 			`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 		);
@@ -834,7 +1126,7 @@ export class ListenView extends ItemView {
 		const built = buildDictCells(cue.text);
 		this.dictNorm = built.norm;
 		for (const cell of built.cells) {
-			const span = this.dictEl.createSpan({ cls: 'echo-dict-cell' });
+			const span = this.dictEl.createSpan({ cls: 'glean-dict-cell' });
 			span.setText(this.cellDisplay(cell, 'pending'));
 			this.dictCells.push({ ...cell, span });
 		}
@@ -865,7 +1157,7 @@ export class ListenView extends ItemView {
 			if (!cell) {
 				continue;
 			}
-			cell.span.className = 'echo-dict-cell';
+			cell.span.className = 'glean-dict-cell';
 			let state: 'pending' | 'matched' | 'current' | 'wrong' | 'revealed' = 'pending';
 
 			if (this.dictRevealed || !this.hidden) {
@@ -1000,7 +1292,11 @@ export class ListenView extends ItemView {
 				this.dictHintEl.setText('匹配完成');
 				this.dictHintEl.addClass('is-done');
 			} else if (cue) {
-				const hideHint = this.hidden ? '原句已隐藏 · H 显示' : '原句可见 · H 隐藏';
+				const hideHint = this.currentYouTube
+					? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
+					: this.hidden
+						? '原句已隐藏 · H 显示'
+						: '原句可见 · H 隐藏';
 				this.dictHintEl.setText(
 					`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 				);
@@ -1066,9 +1362,66 @@ export class ListenView extends ItemView {
 		this.setActive(cue.index);
 	}
 
+	private splitCueBefore(index: number, wordIndex: number): Promise<void> {
+		return this.applyCueEdit(
+			splitCueBeforeWord(this.cues, index, wordIndex),
+			'已拆成两句',
+			'这里断不开',
+			index,
+		);
+	}
+
+	private mergeCueWithPrevious(index: number): Promise<void> {
+		return this.applyCueEdit(
+			mergeCueWithNext(this.cues, index - 1),
+			'已并入上一句',
+			'没有上一句可并',
+			Math.max(0, index - 1),
+		);
+	}
+
+	private async applyCueEdit(
+		next: Cue[] | null,
+		ok: string,
+		emptyHint: string,
+		focusIndex: number = this.activeIndex,
+	): Promise<void> {
+		if (focusIndex < 0) {
+			new Notice('先点一句字幕再编辑');
+			return;
+		}
+		if (!next) {
+			new Notice(emptyHint);
+			return;
+		}
+		this.cues = next;
+		this.closeWordLookup();
+		this.renderCues();
+		const keep = Math.min(Math.max(0, focusIndex), this.cues.length - 1);
+		const cue = this.cues[keep];
+		if (cue) {
+			this.setActive(keep);
+		}
+		await this.persistEditedCues();
+		new Notice(ok);
+	}
+
+	private async persistEditedCues(): Promise<void> {
+		const file = this.currentSubtitle;
+		if (!file) {
+			new Notice('没有字幕文件，只改了当前这一次');
+			return;
+		}
+		const format = file.extension.toLowerCase() === 'srt' ? 'srt' : 'vtt';
+		const body = serializeSubtitles(this.cues, format);
+		await this.app.vault.modify(file, body);
+		const label = this.currentVideo?.name ?? this.currentYouTube?.title ?? file.name;
+		this.setStatus(`${label} · ${file.name} · ${this.cues.length} 句`);
+	}
+
 	private togglePlayback(): void {
 		if (this.mode === 'dictation') {
-			if (this.videoEl && !this.videoEl.paused) {
+			if (this.source.isPlaying()) {
 				this.sentenceMode = false;
 				this.sentenceArmed = false;
 				this.source.pause();
@@ -1114,6 +1467,10 @@ export class ListenView extends ItemView {
 			}
 			return;
 		}
+		if (key === 'Enter' && this.wordPopover.saveCurrent()) {
+			evt.preventDefault();
+			return;
+		}
 		if (key === '[') {
 			evt.preventDefault();
 			this.jumpBy(-1);
@@ -1144,17 +1501,17 @@ export class ListenView extends ItemView {
 			return;
 		}
 		this.source.setPlaybackRate(next);
-		const select = this.contentEl.querySelector('.echo-rate');
+		const select = this.contentEl.querySelector('.glean-rate');
 		if (select instanceof HTMLSelectElement) {
 			select.value = String(next);
 		}
 	}
 
 	private syncPlayButton(): void {
-		if (!this.playBtn || !this.videoEl) {
+		if (!this.playBtn) {
 			return;
 		}
-		this.playBtn.setText(this.videoEl.paused ? '播放' : '暂停');
+		this.playBtn.setText(this.source.isPlaying() ? '暂停' : '播放');
 	}
 
 	private updateTime(t: number): void {
@@ -1177,6 +1534,7 @@ export class ListenView extends ItemView {
 		}
 		this.unsubs = [];
 		this.source.detach();
+		this.mediaHostEl = null;
 		this.videoEl = null;
 		this.cueListEl = null;
 		this.cueEls = [];
@@ -1197,10 +1555,21 @@ export class ListenView extends ItemView {
 	}
 
 	getState(): Record<string, unknown> {
+		if (this.currentYouTube) {
+			return {
+				kind: 'youtube',
+				videoId: this.currentYouTube.videoId,
+				title: this.currentYouTube.title,
+				subtitlePath: this.currentSubtitle?.path ?? null,
+				seekTo: this.source.getCurrentTime(),
+				mode: this.mode,
+			};
+		}
 		if (!this.currentVideo) {
 			return { mode: this.mode };
 		}
 		return {
+			kind: 'local',
 			videoPath: this.currentVideo.path,
 			subtitlePath: this.currentSubtitle?.path ?? null,
 			seekTo: this.source.getCurrentTime(),
@@ -1218,8 +1587,18 @@ export class ListenView extends ItemView {
 			this.mode = s.mode;
 			this.syncModeChrome();
 		}
-		if (typeof s.videoPath === 'string') {
+		if (s.kind === 'youtube' && typeof s.videoId === 'string') {
 			await this.openMedia({
+				kind: 'youtube',
+				videoId: s.videoId,
+				title: typeof s.title === 'string' ? s.title : undefined,
+				subtitlePath: typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
+				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,
+				mode: s.mode,
+			});
+		} else if (typeof s.videoPath === 'string') {
+			await this.openMedia({
+				kind: 'local',
 				videoPath: s.videoPath,
 				subtitlePath: typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
 				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,

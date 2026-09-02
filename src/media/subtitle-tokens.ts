@@ -1,3 +1,5 @@
+import { normalizeLexiconKey } from '../normalize';
+
 export type SubtitleToken = {
 	text: string;
 	kind: 'word' | 'separator';
@@ -23,7 +25,7 @@ export function tokenizeSubtitle(text: string): SubtitleToken[] {
 		tokens.push({
 			text: word,
 			kind: 'word',
-			lookup: word.toLocaleLowerCase(),
+			lookup: normalizeLexiconKey(word),
 		});
 		cursor = index + word.length;
 	}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+		<title>Glean</title>
+		<link rel="stylesheet" href="popup.css" />
+	</head>
+	<body>
+		<main class="glean-popup">
+			<header class="popup-header">
+				<span class="popup-mark" aria-hidden="true">G</span>
+				<span class="popup-heading">
+					<strong class="popup-title">Glean</strong>
+					<span class="popup-subtitle">同步 YouTube 字幕到 Obsidian</span>
+				</span>
+			</header>
+
+			<section class="field-group" aria-label="接收端设置">
+				<div class="field">
+					<label class="field-label" for="port">接收端口</label>
+					<input id="port" type="number" min="1" max="65535" value="17865" />
+				</div>
+				<div class="field">
+					<label class="field-label" for="token">Token</label>
+					<input
+						id="token"
+						type="password"
+						autocomplete="off"
+						placeholder="在 Glean 设置里复制"
+					/>
+				</div>
+			</section>
+
+			<section class="field-group" aria-label="字幕设置">
+				<div class="field">
+					<label class="field-label" for="lang">字幕语言</label>
+					<div class="select-wrap">
+						<select id="lang"></select>
+						<span class="select-arrow" aria-hidden="true"></span>
+					</div>
+				</div>
+			</section>
+
+			<p id="status" class="status" role="status" aria-live="polite">
+				打开 YouTube 视频页后可同步。
+			</p>
+
+			<div class="actions">
+				<button id="save" type="button" class="btn btn-secondary">保存设置</button>
+				<button id="sync" type="button" class="btn btn-primary primary">
+					同步当前视频
+				</button>
+			</div>
+		</main>
+		<script type="module" src="popup.js"></script>
+	</body>
+</html>

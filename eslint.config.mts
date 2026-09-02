@@ -6,6 +6,9 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
+		'extension/dist',
+		'extension/esbuild.mjs',
+		'dev-probe',
 		'esbuild.config.mjs',
 		'version-bump.mjs',
 		'versions.json',
@@ -19,10 +22,11 @@ export default defineConfig(
 		languageOptions: {
 			globals: {
 				...globals.browser,
+				...globals.node,
 			},
 			parserOptions: {
 				projectService: {
-					allowDefaultProject: ['eslint.config.mts', 'manifest.json', 'tests/srt.test.ts'],
+					allowDefaultProject: ['eslint.config.mts', 'manifest.json', 'tools/*.mjs'],
 				},
 				tsconfigRootDir: import.meta.dirname,
 				extraFileExtensions: ['.json'],
@@ -30,4 +34,34 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		files: ['extension/src/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.browser,
+				...globals.webextensions,
+			},
+		},
+		rules: {
+			'no-restricted-globals': 'off',
+			'obsidianmd/prefer-create-el': 'off',
+			'obsidianmd/ui/sentence-case': 'off',
+			'obsidianmd/no-global-this': 'off',
+		},
+	},
+	{
+		files: ['tools/*.mjs'],
+		rules: {
+			'no-console': 'off',
+			'obsidianmd/rule-custom-message': 'off',
+		},
+	},
+	{
+		// Environment-agnostic modules: unit tested under Node, so they cannot
+		// reach for `window`.
+		files: ['src/translate/*.ts'],
+		rules: {
+			'obsidianmd/prefer-window-timers': 'off',
+		},
+	},
 );

@@ -1,5 +1,5 @@
 {
-	"name": "echo",
+	"name": "glean",
 	"version": "0.0.1",
 	"description": "Learn English inside Obsidian by intensive listening and reading, with a Markdown vocabulary notebook.",
 	"main": "main.js",
@@ -7,6 +7,10 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"extension:build": "node extension/esbuild.mjs",
+		"icons:build": "node tools/build-icons.mjs",
+		"dict:build": "node tools/build-dict.mjs",
+		"dict:coverage": "node tools/sample-coverage.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
@@ -18,15 +22,21 @@
 		"listening"
 	],
 	"license": "MIT",
+	"dependencies": {
+		"compromise": "^14.16.0",
+		"fflate": "^0.8.3"
+	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",
 		"@types/node": "^22.15.17",
+		"csv-parse": "^7.0.2",
 		"esbuild": "0.25.5",
 		"eslint": "^9.39.4",
 		"eslint-plugin-obsidianmd": "^0.4.0",
 		"globals": "^17.6.0",
 		"jiti": "^2.6.1",
 		"obsidian": "latest",
+		"sharp": "^0.35.4",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1",
 		"vitest": "^3.2.4"
