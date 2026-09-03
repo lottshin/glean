@@ -3,7 +3,12 @@ import {
 	type BilibiliCapture,
 } from './bilibili-capture';
 import type { BilibiliMediaTrack } from '../../src/bilibili/playurl';
-import type { BilibiliSubtitleTrack } from '../../src/bilibili/subtitle';
+import {
+	isEnglishLanguage,
+	transcriptionTrack,
+	usableEnglishTracks,
+	type BilibiliSubtitleTrack,
+} from '../../src/bilibili/subtitle';
 
 const BUTTON_ID = 'glean-sync-button';
 const DEFAULT_TITLE = '同步英文字幕到 Obsidian Glean';
@@ -95,11 +100,20 @@ function requestMediaTrack(
 }
 
 function isEnglishTrack(track: BilibiliSubtitleTrack): boolean {
-	return /^(?:ai-)?en(?:[-_]|$)/i.test(track.lan);
+	return isEnglishLanguage(track.lan) && !track.isTranslation;
 }
 
 function englishTracks(capture: BilibiliCapture): BilibiliSubtitleTrack[] {
-	return capture.tracks.filter(isEnglishTrack);
+	return usableEnglishTracks(capture.tracks);
+}
+
+/** Explains a refusal in terms of what the video actually is. */
+function noEnglishReason(capture: BilibiliCapture): string {
+	const spoken = transcriptionTrack(capture.tracks);
+	if (spoken && !isEnglishLanguage(spoken.lan)) {
+		return `这个视频的原声是${spoken.lanDoc}，英文字幕是机器翻译的，跟读音对不上`;
+	}
+	return '该视频没有英文字幕轨；自动生成英文字幕将在下一步支持';
 }
 
 async function getCapture(): Promise<BilibiliCapture | null> {
@@ -213,7 +227,7 @@ async function syncCurrentVideo(
 				: available[0];
 		const track = selected && isEnglishTrack(selected) ? selected : available[0];
 		if (!track) {
-			throw new Error('该视频没有英文字幕轨；自动生成英文字幕将在下一步支持');
+			throw new Error(noEnglishReason(capture));
 		}
 
 		const vttResult = (await chrome.runtime.sendMessage({

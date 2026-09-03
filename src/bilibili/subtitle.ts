@@ -26,6 +26,13 @@ export interface BilibiliSubtitleTrack {
 	/** Protocol-relative in the raw API response; callers must normalize. */
 	subtitleUrl: string;
 	isAi: boolean;
+	/**
+	 * Bilibili transcribes the spoken audio into one track (`ai_type` 0) and
+	 * machine-translates that into every other language (`ai_type` 1). A
+	 * translation reads as fluent English while the audio stays Chinese, which
+	 * is worthless for listening practice.
+	 */
+	isTranslation: boolean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -63,16 +70,52 @@ export function parseSubtitleTracks(response: unknown): BilibiliSubtitleTrack[] 
 			continue;
 		}
 		const lan = typeof track?.lan === 'string' ? track.lan : 'und';
+		const aiType = typeof track?.ai_type === 'number' ? track.ai_type : null;
 		tracks.push({
 			lan,
 			lanDoc: typeof track?.lan_doc === 'string' ? track.lan_doc : lan,
 			subtitleUrl: url,
-			// Bilibili flags machine subtitles with an ai_type/ai_status pair, but
-			// the lan prefix is the only field present across all responses.
-			isAi: lan.startsWith('ai-') || track?.ai_status === 1,
+			isAi: lan.startsWith('ai-') || aiType !== null,
+			isTranslation: aiType === 1,
 		});
 	}
 	return tracks;
+}
+
+/** Strips Bilibili's "ai-" prefix so "ai-en" and "en-US" compare alike. */
+export function baseLanguage(lan: string): string {
+	return lan.toLowerCase().replace(/^ai-/, '');
+}
+
+export function isEnglishLanguage(lan: string): boolean {
+	return /^en(?:[-_]|$)/.test(baseLanguage(lan));
+}
+
+/**
+ * The track Bilibili transcribed from the audio, which reveals what language is
+ * actually spoken. A Chinese vlog can carry five fluent-looking foreign tracks,
+ * but only the transcription has `ai_type` 0.
+ */
+export function transcriptionTrack(
+	tracks: BilibiliSubtitleTrack[],
+): BilibiliSubtitleTrack | null {
+	return tracks.find((track) => track.isAi && !track.isTranslation) ?? null;
+}
+
+/**
+ * Tracks worth syncing: English, and not translated out of another language.
+ * Returns nothing when the audio is known to be non-English.
+ */
+export function usableEnglishTracks(
+	tracks: BilibiliSubtitleTrack[],
+): BilibiliSubtitleTrack[] {
+	const spoken = transcriptionTrack(tracks);
+	if (spoken && !isEnglishLanguage(spoken.lan)) {
+		return [];
+	}
+	return tracks.filter(
+		(track) => isEnglishLanguage(track.lan) && !track.isTranslation,
+	);
 }
 
 /** Prefer a human English track, then AI English, then any human track. */
@@ -84,7 +127,10 @@ export function pickDefaultTrack(
 	}
 	const byLang = (prefix: string, ai: boolean | null = null) =>
 		tracks.find((track) => {
-			const lang = track.lan.toLowerCase().replace(/^ai-/, '');
+			if (track.isTranslation) {
+				return false;
+			}
+			const lang = baseLanguage(track.lan);
 			if (!lang.startsWith(prefix)) {
 				return false;
 			}

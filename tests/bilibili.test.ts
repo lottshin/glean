@@ -9,9 +9,12 @@ import {
 import {
 	bilibiliSubtitleToWebVtt,
 	cuesFromBilibiliSubtitle,
+	isEnglishLanguage,
 	normalizeSubtitleUrl,
 	parseSubtitleTracks,
 	pickDefaultTrack,
+	transcriptionTrack,
+	usableEnglishTracks,
 } from '../src/bilibili/subtitle';
 
 const BV = 'BV1GJ411x7h7';
@@ -126,6 +129,88 @@ describe('subtitle track list', () => {
 			},
 		});
 		expect(pickDefaultTrack(tracks)?.lan).toBe('ai-en');
+	});
+
+	// Shape taken from BV1rRut6rEGS, a Chinese vlog Bilibili auto-translated
+	// into five languages. Its English track reads fluently but the audio is
+	// Chinese, so syncing it would produce captions nobody can listen along to.
+	const chineseVlog = parseSubtitleTracks({
+		data: {
+			subtitle: {
+				subtitles: [
+					{ lan: 'ai-zh', lan_doc: '中文', ai_type: 0, ai_status: 2, subtitle_url: '//x/zh.json' },
+					{ lan: 'ai-en', lan_doc: 'English', ai_type: 1, ai_status: 2, subtitle_url: '//x/en.json' },
+					{ lan: 'ai-ja', lan_doc: '日本語', ai_type: 1, ai_status: 2, subtitle_url: '//x/ja.json' },
+				],
+			},
+		},
+	});
+
+	it('marks ai_type 1 tracks as translations', () => {
+		expect(chineseVlog.map((track) => track.isTranslation)).toEqual([
+			false,
+			true,
+			true,
+		]);
+	});
+
+	it('reads the spoken language off the transcription track', () => {
+		expect(transcriptionTrack(chineseVlog)?.lan).toBe('ai-zh');
+	});
+
+	it('offers no English track when the audio is Chinese', () => {
+		expect(usableEnglishTracks(chineseVlog)).toEqual([]);
+	});
+
+	it('never defaults to a translated track', () => {
+		expect(pickDefaultTrack(chineseVlog)?.lan).toBe('ai-zh');
+	});
+
+	it('keeps AI English when it is the transcription', () => {
+		const englishTalk = parseSubtitleTracks({
+			data: {
+				subtitle: {
+					subtitles: [
+						{ lan: 'ai-en', lan_doc: 'English', ai_type: 0, subtitle_url: '//x/en.json' },
+						{ lan: 'ai-zh', lan_doc: '中文', ai_type: 1, subtitle_url: '//x/zh.json' },
+					],
+				},
+			},
+		});
+		expect(usableEnglishTracks(englishTalk).map((t) => t.lan)).toEqual(['ai-en']);
+		expect(transcriptionTrack(englishTalk)?.lan).toBe('ai-en');
+	});
+
+	// Human tracks carry no ai_type, so there is nothing to infer from and we
+	// let them through rather than silently dropping hand-made captions.
+	it('keeps a human English track when no AI track reveals the audio', () => {
+		const human = parseSubtitleTracks({
+			data: {
+				subtitle: {
+					subtitles: [
+						{ lan: 'zh-CN', lan_doc: '中文', subtitle_url: '//x/zh.json' },
+						{ lan: 'en-US', lan_doc: '英语', subtitle_url: '//x/en.json' },
+					],
+				},
+			},
+		});
+		expect(usableEnglishTracks(human).map((t) => t.lan)).toEqual(['en-US']);
+		expect(transcriptionTrack(human)).toBeNull();
+	});
+
+	it('recognises English language codes with and without the ai prefix', () => {
+		expect(['en', 'en-US', 'ai-en', 'EN_GB'].map(isEnglishLanguage)).toEqual([
+			true,
+			true,
+			true,
+			true,
+		]);
+		expect(['zh-CN', 'ai-zh', 'eng-x', 'es'].map(isEnglishLanguage)).toEqual([
+			false,
+			false,
+			false,
+			false,
+		]);
 	});
 
 	it('returns null for an empty track list', () => {

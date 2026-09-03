@@ -1,7 +1,10 @@
 import { pickDefaultTrack, type CaptionTrack, type YouTubeCapture } from './capture';
 import type { BilibiliCapture } from './bilibili-capture';
 import {
+	isEnglishLanguage,
 	pickDefaultTrack as pickDefaultBilibiliTrack,
+	transcriptionTrack,
+	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';
 
@@ -25,6 +28,15 @@ type PopupTrack = {
 };
 
 let activePlatform: 'youtube' | 'bilibili' | null = null;
+
+/** Names the real obstacle: no English at all, or English that is a translation. */
+function bilibiliRefusal(capture: BilibiliCapture): string {
+	const spoken = transcriptionTrack(capture.tracks);
+	if (spoken && !isEnglishLanguage(spoken.lan)) {
+		return `原声是${spoken.lanDoc}，英文字幕是机翻的，精听用不上`;
+	}
+	return '该视频没有英文字幕轨；自动生成将在后续支持';
+}
 
 function fillLanguages(tracks: PopupTrack[]): void {
 	langSelect.innerHTML = '';
@@ -96,9 +108,7 @@ async function refreshCapture(): Promise<void> {
 		}
 		if (isBilibili) {
 			const biliCapture = capture as BilibiliCapture;
-			const english = biliCapture.tracks.filter((track) =>
-				/^(?:ai-)?en(?:[-_]|$)/i.test(track.lan),
-			);
+			const english = usableEnglishTracks(biliCapture.tracks);
 			const preferred = pickDefaultBilibiliTrack(english);
 			const ordered = preferred
 				? [preferred, ...english.filter((track) => track !== preferred)]
@@ -126,11 +136,9 @@ async function refreshCapture(): Promise<void> {
 		}
 		setStatus(
 			isBilibili
-				? (capture as BilibiliCapture).tracks.some((track) =>
-						/^(?:ai-)?en(?:[-_]|$)/i.test(track.lan),
-					)
+				? usableEnglishTracks((capture as BilibiliCapture).tracks).length > 0
 					? `已识别：${capture.title}`
-					: '该视频没有英文字幕轨；自动生成将在后续支持'
+					: bilibiliRefusal(capture as BilibiliCapture)
 				: capture.tracks.length > 0
 				? `已识别：${capture.title}`
 				: '该视频没有可下载的字幕轨道',
