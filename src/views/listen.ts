@@ -312,7 +312,7 @@ export class ListenView extends ItemView {
 		empty.createDiv({ cls: 'glean-player-empty-title', text: '还没有媒体' });
 		empty.createDiv({
 			cls: 'glean-player-empty-detail',
-			text: '打开 vault 里的视频或音频。字幕放同目录同名 .srt / .vtt。',
+			text: '打开 vault 里的视频或音频；字幕放同目录同名 .srt / .vtt。YouTube 需要浏览器里的 Glean 扩展（设置里有说明）。',
 		});
 		const emptyOpen = empty.createEl('button', {
 			text: '打开媒体',

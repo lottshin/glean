@@ -35,6 +35,8 @@ export interface GleanSettings {
 	translateEndpoint: string;
 	translateModel: string;
 	translateTarget: string;
+	/** Shown once after install so browser extras are not buried in README. */
+	browserExtensionsHintShown: boolean;
 }
 
 export const DEFAULT_SETTINGS: GleanSettings = {
@@ -53,7 +55,10 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	translateEndpoint: '',
 	translateModel: 'gpt-4o-mini',
 	translateTarget: '简体中文',
+	browserExtensionsHintShown: false,
 };
+
+const CLIPPER_URL = 'https://obsidian.md/clipper';
 
 export class GleanSettingTab extends PluginSettingTab {
 	plugin: GleanPlugin;
@@ -65,6 +70,27 @@ export class GleanSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
+			{
+				type: 'group',
+				heading: '浏览器扩展',
+				items: [
+					{
+						name: 'Obsidian Web Clipper',
+						desc: '官方剪藏。把网页文章存进 vault，再用 Glean 阅读。Glean 不另做剪藏扩展。',
+						aliases: ['clipper', '阅读', '剪藏'],
+						render: (setting) => {
+							setting.addButton((button) =>
+								button.setButtonText('打开官网').onClick(() => window.open(CLIPPER_URL)),
+							);
+						},
+					},
+					{
+						name: 'Glean YouTube Capture',
+						desc: '采集 YouTube 字幕并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+						aliases: ['youtube', '扩展'],
+					},
+				],
+			},
 			{
 				name: '生词目录',
 				desc: '生词笔记存放的 vault 相对路径。修改后不会搬运旧卡片；需要搬运时运行“Glean: 整理生词目录”。',
@@ -138,7 +164,7 @@ export class GleanSettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: '启用接收端',
-						desc: '仅桌面端在 127.0.0.1 启动，用于接收 Glean 浏览器扩展采集的字幕。',
+						desc: '仅桌面端在 127.0.0.1 启动，用于接收上方 Glean YouTube Capture 采集的字幕。',
 						control: {
 							type: 'toggle',
 							key: 'youtubeReceiverEnabled',
@@ -372,6 +398,21 @@ export class GleanSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		new Setting(containerEl).setName('浏览器扩展').setHeading();
+		new Setting(containerEl)
+			.setName('Obsidian Web Clipper')
+			.setDesc(
+				'官方剪藏。把网页文章存进 vault，再用 Glean 阅读。Glean 不另做剪藏扩展。',
+			)
+			.addButton((button) =>
+				button.setButtonText('打开官网').onClick(() => window.open(CLIPPER_URL)),
+			);
+		new Setting(containerEl)
+			.setName('Glean YouTube Capture')
+			.setDesc(
+				'采集 YouTube 字幕并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+			);
+
 		new Setting(containerEl)
 			.setName('生词目录')
 			.setDesc(
@@ -463,7 +504,7 @@ export class GleanSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('启用接收端')
-			.setDesc('仅桌面端在 127.0.0.1 启动，用于接收 Glean 浏览器扩展采集的字幕。')
+			.setDesc('仅桌面端在 127.0.0.1 启动，用于接收上方 Glean YouTube Capture 采集的字幕。')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.youtubeReceiverEnabled)

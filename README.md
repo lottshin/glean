@@ -6,6 +6,13 @@
 
 > 当前为 `0.0.1` 开发预览版，最低 Obsidian `1.6.6`。浏览器采集只在桌面端进行；同步后的材料可在桌面、iPad 和手机学习。尚未提交社区插件市场。
 
+Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
+
+- **Obsidian Web Clipper**（[官方](https://obsidian.md/clipper)）：把网页存进 vault，再用 Glean 阅读。
+- **Glean YouTube Capture**：从 YouTube 同步字幕。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
+
+详情在 **设置 → Glean** 顶部；侧边栏麦穗菜单也有「浏览器扩展…」。
+
 ## 核心工作流
 
 ### 精听
@@ -125,7 +132,7 @@ glean-inflect-v1.tsv
 <vault>/.obsidian/plugins/glean/
 ```
 
-目录中应正好是 `main.js`、`manifest.json`、`styles.css`。然后打开 **设置 → 第三方插件**，关闭安全模式并启用 **Glean**。首次启用时会把离线词典解压到 `.obsidian/glean/dict/`，不联网；设置页应显示「已加载 Glean 离线词典」。
+目录中应正好是 `main.js`、`manifest.json`、`styles.css`。然后打开 **设置 → 第三方插件**，关闭安全模式并启用 **Glean**。首次启用时会把离线词典解压到 `.obsidian/glean/dict/`，不联网；设置页应显示「已加载 Glean 离线词典」。同时会提示安装官方 **Obsidian Web Clipper** 和 **Glean YouTube Capture**，说明在 **设置 → Glean** 顶部。
 
 不要把 TypeScript 源码拷进插件目录。当前 `0.0.1` 仍是开发预览，未上社区市场。本地打包：
 

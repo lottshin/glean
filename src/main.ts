@@ -113,6 +113,13 @@ export default class GleanPlugin extends Plugin {
 						void this.reading.toggle(file);
 					}),
 			);
+			menu.addSeparator();
+			menu.addItem((item) =>
+				item
+					.setTitle('浏览器扩展…')
+					.setIcon('puzzle')
+					.onClick(() => this.openSettingTab()),
+			);
 			menu.showAtMouseEvent(event);
 		});
 
@@ -322,6 +329,7 @@ export default class GleanPlugin extends Plugin {
 		this.addSettingTab(new GleanSettingTab(this.app, this));
 		this.app.workspace.onLayoutReady(() => {
 			void this.checkLexiconLayout();
+			void this.maybeHintBrowserExtensions();
 		});
 	}
 
@@ -975,5 +983,28 @@ export default class GleanPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Settings UI is not in the public Plugin API; this is the documented internal hook. */
+	openSettingTab(): void {
+		const setting = (
+			this.app as unknown as {
+				setting: { open: () => void; openTabById: (id: string) => void };
+			}
+		).setting;
+		setting.open();
+		setting.openTabById(this.manifest.id);
+	}
+
+	private async maybeHintBrowserExtensions(): Promise<void> {
+		if (this.settings.browserExtensionsHintShown) {
+			return;
+		}
+		this.settings.browserExtensionsHintShown = true;
+		await this.saveSettings();
+		new Notice(
+			'网页文章用官方 Obsidian Web Clipper；YouTube 字幕用 Glean 浏览器扩展。说明在 设置 → Glean。',
+			10_000,
+		);
 	}
 }
