@@ -1,9 +1,8 @@
 import { pickDefaultTrack, type CaptionTrack, type YouTubeCapture } from './capture';
 import type { BilibiliCapture } from './bilibili-capture';
 import {
-	isEnglishLanguage,
 	pickDefaultTrack as pickDefaultBilibiliTrack,
-	transcriptionTrack,
+	translatedEnglishTracks,
 	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';
@@ -31,9 +30,8 @@ let activePlatform: 'youtube' | 'bilibili' | null = null;
 
 /** Names the real obstacle: no English at all, or English that is a translation. */
 function bilibiliRefusal(capture: BilibiliCapture): string {
-	const spoken = transcriptionTrack(capture.tracks);
-	if (spoken && !isEnglishLanguage(spoken.lan)) {
-		return `原声是${spoken.lanDoc}，英文字幕是机翻的，精听用不上`;
+	if (translatedEnglishTracks(capture.tracks).length > 0) {
+		return '英文字幕是机翻的，跟读音对不上，精听用不了';
 	}
 	return '该视频没有英文字幕轨；自动生成将在后续支持';
 }

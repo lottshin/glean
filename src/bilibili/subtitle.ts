@@ -92,29 +92,27 @@ export function isEnglishLanguage(lan: string): boolean {
 }
 
 /**
- * The track Bilibili transcribed from the audio, which reveals what language is
- * actually spoken. A Chinese vlog can carry five fluent-looking foreign tracks,
- * but only the transcription has `ai_type` 0.
- */
-export function transcriptionTrack(
-	tracks: BilibiliSubtitleTrack[],
-): BilibiliSubtitleTrack | null {
-	return tracks.find((track) => track.isAi && !track.isTranslation) ?? null;
-}
-
-/**
- * Tracks worth syncing: English, and not translated out of another language.
- * Returns nothing when the audio is known to be non-English.
+ * English tracks Bilibili did not machine-translate.
+ *
+ * `ai_type` says nothing about the spoken language: a video dubbed in English
+ * still gets Bilibili's default Chinese track flagged 0, so that field cannot
+ * be used to infer what the audio is. All it reliably marks is that a 1 was
+ * translated out of another track and therefore will not match the audio.
  */
 export function usableEnglishTracks(
 	tracks: BilibiliSubtitleTrack[],
 ): BilibiliSubtitleTrack[] {
-	const spoken = transcriptionTrack(tracks);
-	if (spoken && !isEnglishLanguage(spoken.lan)) {
-		return [];
-	}
 	return tracks.filter(
 		(track) => isEnglishLanguage(track.lan) && !track.isTranslation,
+	);
+}
+
+/** English tracks rejected as machine translations, for explaining a refusal. */
+export function translatedEnglishTracks(
+	tracks: BilibiliSubtitleTrack[],
+): BilibiliSubtitleTrack[] {
+	return tracks.filter(
+		(track) => isEnglishLanguage(track.lan) && track.isTranslation,
 	);
 }
 

@@ -5,7 +5,7 @@ import {
 import type { BilibiliMediaTrack } from '../../src/bilibili/playurl';
 import {
 	isEnglishLanguage,
-	transcriptionTrack,
+	translatedEnglishTracks,
 	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';
@@ -109,9 +109,8 @@ function englishTracks(capture: BilibiliCapture): BilibiliSubtitleTrack[] {
 
 /** Explains a refusal in terms of what the video actually is. */
 function noEnglishReason(capture: BilibiliCapture): string {
-	const spoken = transcriptionTrack(capture.tracks);
-	if (spoken && !isEnglishLanguage(spoken.lan)) {
-		return `这个视频的原声是${spoken.lanDoc}，英文字幕是机器翻译的，跟读音对不上`;
+	if (translatedEnglishTracks(capture.tracks).length > 0) {
+		return '该视频的英文字幕是机器翻译的，跟读音对不上，没有同步';
 	}
 	return '该视频没有英文字幕轨；自动生成英文字幕将在下一步支持';
 }
