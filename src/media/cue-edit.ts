@@ -1,4 +1,5 @@
 import type { Cue } from './types';
+import { wordClocksAdvanceAt } from './word-timeline';
 
 const MIN_SPAN = 0.25;
 
@@ -30,6 +31,62 @@ function wordSpans(text: string): Array<{ start: number; end: number }> {
 	return spans;
 }
 
+function concatWords(
+	left: Cue['words'],
+	right: Cue['words'],
+): Cue['words'] {
+	return left && right ? [...left, ...right] : undefined;
+}
+
+/**
+ * Cut time from ASR word clocks only. Returns null when clocks are missing or
+ * flat — callers must NOT invent times with char-ratio or padding.
+ */
+function midFromWordClocks(cue: Cue, at: number): number | null {
+	const words = cue.words;
+	if (!words || words.length !== wordSpans(cue.text).length) {
+		return null;
+	}
+	if (!wordClocksAdvanceAt(words, cue.text, at)) {
+		return null;
+	}
+	const leftStart = words[0]?.start ?? cue.start;
+	const boundary = words[at]?.start;
+	if (typeof boundary === 'number' && boundary > leftStart + 0.05) {
+		return Math.min(cue.end - MIN_SPAN, Math.max(cue.start + MIN_SPAN, boundary));
+	}
+	const advanced = words.slice(at).find((word) => word.start > leftStart + 0.05);
+	if (!advanced) {
+		return null;
+	}
+	return Math.min(cue.end - MIN_SPAN, Math.max(cue.start + MIN_SPAN, advanced.start));
+}
+
+export type SplitCueFailure = 'too-short' | 'missing-word-clocks';
+
+/**
+ * Why a manual split cannot be timed. Used for precise user-facing notices.
+ */
+export function explainSplitCueFailure(
+	cues: Cue[],
+	index: number,
+	wordIndex: number,
+): SplitCueFailure | null {
+	const cue = cues[index];
+	if (!cue) {
+		return 'too-short';
+	}
+	const spans = wordSpans(cue.text);
+	if (spans.length < 2) {
+		return 'too-short';
+	}
+	const at = Math.min(Math.max(1, wordIndex), spans.length - 1);
+	if (midFromWordClocks(cue, at) === null) {
+		return 'missing-word-clocks';
+	}
+	return null;
+}
+
 /** Merge cue `index` with the following cue. */
 export function mergeCueWithNext(cues: Cue[], index: number): Cue[] | null {
 	const left = cues[index];
@@ -42,13 +99,17 @@ export function mergeCueWithNext(cues: Cue[], index: number): Cue[] | null {
 		start: left.start,
 		end: Math.max(left.end, right.end),
 		text: joinCueText(left.text, right.text),
+		words: concatWords(left.words, right.words),
 	};
 	return reindex([...cues.slice(0, index), merged, ...cues.slice(index + 2)]);
 }
 
 /**
  * Split cue `index` before word `wordIndex` (0-based among clickable words).
- * Times are interpolated by character length when no per-word clocks exist.
+ *
+ * Universal timing rule: the right half starts at that word's real ASR time.
+ * No char-ratio, no 1s pad — those invent wrong stamps (e.g. welcome → 12s).
+ * Without usable word clocks, returns null (caller should tell user to re-sync).
  */
 export function splitCueBeforeWord(
 	cues: Cue[],
@@ -73,20 +134,29 @@ export function splitCueBeforeWord(
 	if (!first || !second) {
 		return null;
 	}
-	const span = Math.max(cue.end - cue.start, MIN_SPAN * 2);
-	const ratio = Math.min(0.85, Math.max(0.15, first.length / (cue.text.length || 1)));
-	const mid = cue.start + span * ratio;
+	const mid = midFromWordClocks(cue, at);
+	if (mid === null) {
+		return null;
+	}
+	const leftCount = wordSpans(first).length;
+	const leftWords = cue.words?.slice(0, leftCount);
+	const rightWords = cue.words?.slice(at);
 	const left: Cue = {
 		index,
 		start: cue.start,
 		end: Math.max(cue.start + MIN_SPAN, mid),
 		text: first,
+		words: leftWords && leftWords.length === leftCount ? leftWords : undefined,
 	};
 	const right: Cue = {
 		index: index + 1,
 		start: Math.min(mid, cue.end - MIN_SPAN),
 		end: cue.end,
 		text: second,
+		words:
+			rightWords && rightWords.length === wordSpans(second).length
+				? rightWords
+				: undefined,
 	};
 	if (!(left.end > left.start) || !(right.end > right.start)) {
 		return null;

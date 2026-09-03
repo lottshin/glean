@@ -1,16 +1,18 @@
 import {
+	acceptCaptionRaw,
 	captureYouTubeFromHtml,
 	captureYouTubePage,
-	fetchTrackVtt,
+	fetchTrackRaw,
 	pickDefaultTrack,
 	type CaptionTrack,
 	type YouTubeCapture,
 } from './capture';
 
 const BUTTON_ID = 'glean-sync-button';
-const LABEL_CLASS = 'glean-sync-btn__label';
-const DEFAULT_LABEL = 'Glean';
-/** The packaged app icon, so the pill carries the exact brand mark. */
+const ICON_CLASS = 'glean-sync-btn__icon';
+/** Tooltip when idle; busy/done/error swap in their own text. */
+const DEFAULT_TITLE = '同步字幕到 Obsidian Glean';
+/** The packaged app icon — icon-only like Immersive Translate. */
 const BRAND_ICON_PATH = 'icons/icon-32.png';
 
 const REQUEST_EVENT = 'glean-request-capture';
@@ -152,7 +154,7 @@ interface SyncRequest {
 
 function createBrandIcon(): HTMLImageElement {
 	const img = document.createElement('img');
-	img.className = 'glean-sync-btn__icon';
+	img.className = ICON_CLASS;
 	img.src = chrome.runtime.getURL(BRAND_ICON_PATH);
 	img.alt = '';
 	img.setAttribute('aria-hidden', 'true');
@@ -160,21 +162,17 @@ function createBrandIcon(): HTMLImageElement {
 	return img;
 }
 
-/** Icon on the left, status text on the right: only the text ever changes. */
+/** Icon-only mark — status goes to title + short-lived toast, not a text label. */
 function fillButton(button: HTMLButtonElement): void {
-	const pill = document.createElement('span');
-	pill.className = 'glean-sync-btn__pill';
-	pill.appendChild(createBrandIcon());
-	const label = document.createElement('span');
-	label.className = LABEL_CLASS;
-	label.textContent = DEFAULT_LABEL;
-	pill.appendChild(label);
-	button.replaceChildren(pill);
+	button.replaceChildren(createBrandIcon());
 }
 
 function ensureButton(): HTMLButtonElement | null {
 	const existing = document.getElementById(BUTTON_ID);
 	if (existing instanceof HTMLButtonElement) {
+		if (!existing.querySelector(`.${ICON_CLASS}`)) {
+			fillButton(existing);
+		}
 		return existing;
 	}
 
@@ -191,8 +189,8 @@ function ensureButton(): HTMLButtonElement | null {
 	button.id = BUTTON_ID;
 	button.type = 'button';
 	button.className = 'glean-sync-btn';
-	button.title = '同步字幕到 Obsidian Glean';
-	button.setAttribute('aria-label', '同步字幕到 Obsidian Glean');
+	button.title = DEFAULT_TITLE;
+	button.setAttribute('aria-label', DEFAULT_TITLE);
 	fillButton(button);
 	button.addEventListener('click', (event) => {
 		event.preventDefault();
@@ -255,7 +253,7 @@ function matchingTrack(
 function requestBridgeTimedText(
 	track: CaptionTrack,
 	videoId: string,
-	timeoutMs = 8000,
+	timeoutMs = 20000,
 ): Promise<string> {
 	const requestId = crypto.randomUUID();
 	return new Promise((resolve, reject) => {
@@ -301,7 +299,32 @@ function requestBridgeTimedText(
 	});
 }
 
-async function downloadTrackVtt(
+async function segmentCaptionRaw(
+	raw: string,
+	cacheKey: string,
+): Promise<string> {
+	const accepted = acceptCaptionRaw(raw);
+	if (!accepted) {
+		throw new Error('字幕内容无效');
+	}
+	if (accepted.fmt === 'vtt') {
+		return accepted.raw;
+	}
+	const response = (await chrome.runtime.sendMessage({
+		type: 'glean-segment-json3',
+		raw: accepted.raw,
+		cacheKey,
+	})) as { ok?: boolean; vtt?: string; error?: string } | undefined;
+	if (chrome.runtime.lastError) {
+		throw new Error(chrome.runtime.lastError.message || '分句进程无响应');
+	}
+	if (!response?.ok || typeof response.vtt !== 'string') {
+		throw new Error(response?.error ?? '字幕分句失败');
+	}
+	return response.vtt;
+}
+
+async function downloadTrackRaw(
 	track: CaptionTrack,
 	preferredTrackIndex?: number,
 	videoId?: string,
@@ -316,7 +339,8 @@ async function downloadTrackVtt(
 	}
 
 	try {
-		return await fetchTrackVtt(track, fetch, videoId);
+		const accepted = await fetchTrackRaw(track, fetch, videoId);
+		return accepted.raw;
 	} catch (firstError) {
 		let fresh: YouTubeCapture | null = null;
 		try {
@@ -339,7 +363,12 @@ async function downloadTrackVtt(
 				// Continue to direct fetch with refreshed URL.
 			}
 		}
-		return await fetchTrackVtt(refreshed, fetch, fresh?.videoId ?? videoId);
+		const accepted = await fetchTrackRaw(
+			refreshed,
+			fetch,
+			fresh?.videoId ?? videoId,
+		);
+		return accepted.raw;
 	}
 }
 
@@ -349,29 +378,34 @@ async function syncCurrentVideo(
 ): Promise<{ ok: boolean; error?: string }> {
 	const capture = await getCapture();
 	if (!capture) {
-		setButtonState(button, '无法读取视频信息', true);
+		setButtonState(button, '无法读取视频信息', 'error');
 		return { ok: false, error: '无法读取视频信息' };
 	}
 	if (capture.tracks.length === 0) {
-		setButtonState(button, '无字幕', true);
+		setButtonState(button, '无字幕', 'error');
 		return { ok: false, error: '该视频没有可用字幕' };
 	}
 
 	const settings = await readSettings();
 	if (!settings.token.trim()) {
-		setButtonState(button, '先在扩展弹窗填 token', true);
+		setButtonState(button, '先在扩展弹窗填 token', 'error');
 		return { ok: false, error: '请先在扩展弹窗填写 token' };
 	}
 
 	const track = chooseTrack(capture, preferredTrackIndex);
 	if (!track) {
-		setButtonState(button, '无可用字幕', true);
+		setButtonState(button, '无可用字幕', 'error');
 		return { ok: false, error: '没有可用字幕轨道' };
 	}
 
-	setButtonState(button, '同步中…');
+	setButtonState(button, '同步中…', 'busy');
 	try {
-		const vtt = await downloadTrackVtt(track, preferredTrackIndex, capture.videoId);
+		setButtonState(button, '下载字幕…', 'busy');
+		const raw = await downloadTrackRaw(track, preferredTrackIndex, capture.videoId);
+		setButtonState(button, '智能分句中…', 'busy');
+		const cacheKey = `${capture.videoId}:${track.languageCode}:${track.isAsr ? 'asr' : 'manual'}`;
+		const vtt = await segmentCaptionRaw(raw, cacheKey);
+		setButtonState(button, '写入 Obsidian…', 'busy');
 		const message: SyncRequest = {
 			type: 'glean-sync',
 			payload: {
@@ -390,34 +424,71 @@ async function syncCurrentVideo(
 		if (!response?.ok) {
 			throw new Error(response?.error ?? '同步失败');
 		}
-		setButtonState(button, '已同步');
-		window.setTimeout(() => setButtonState(button, DEFAULT_LABEL), 2000);
+		setButtonState(button, '已同步', 'done');
+		window.setTimeout(() => setButtonState(button, DEFAULT_TITLE), 2000);
 		return { ok: true };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : '同步失败';
-		setButtonState(
-			button,
-			message,
-			true,
-		);
+		setButtonState(button, message, 'error');
 		return { ok: false, error: message };
 	}
 }
 
-function setButtonState(button: HTMLButtonElement, text: string, isError = false): void {
-	let label = button.querySelector<HTMLElement>(`.${LABEL_CLASS}`);
-	if (!label) {
+const toastTimers = new WeakMap<HTMLButtonElement, number>();
+
+function setButtonState(
+	button: HTMLButtonElement,
+	text: string,
+	state: 'idle' | 'busy' | 'done' | 'error' = 'idle',
+): void {
+	if (!button.querySelector(`.${ICON_CLASS}`)) {
 		fillButton(button);
-		label = button.querySelector<HTMLElement>(`.${LABEL_CLASS}`);
 	}
-	const shown = text.length > 18 ? `${text.slice(0, 16)}…` : text;
-	if (label) {
-		label.textContent = shown;
-	} else {
-		button.textContent = shown;
+	const title = state === 'idle' ? DEFAULT_TITLE : text;
+	button.title = title;
+	button.setAttribute('aria-label', title);
+	button.classList.remove('is-busy', 'is-done', 'is-error');
+	if (state !== 'idle') {
+		button.classList.add(`is-${state}`);
 	}
-	button.classList.toggle('is-error', isError);
-	button.title = text;
+	updateToast(button, state === 'idle' ? '' : text, state);
+}
+
+/** Icon-only has no label room — surface status as a short bubble by the mark. */
+function updateToast(
+	button: HTMLButtonElement,
+	text: string,
+	state: 'idle' | 'busy' | 'done' | 'error',
+): void {
+	let toast = button.querySelector<HTMLElement>('.glean-sync-toast');
+	if (!text) {
+		toast?.classList.remove('is-visible');
+		return;
+	}
+	if (!toast) {
+		toast = document.createElement('span');
+		toast.className = 'glean-sync-toast';
+		button.appendChild(toast);
+	}
+	toast.textContent = text.length > 36 ? `${text.slice(0, 34)}…` : text;
+	toast.classList.remove('is-done', 'is-error');
+	if (state === 'done' || state === 'error') {
+		toast.classList.add(`is-${state}`);
+	}
+	toast.classList.add('is-visible');
+
+	const previous = toastTimers.get(button);
+	if (previous) {
+		window.clearTimeout(previous);
+	}
+	if (state === 'done' || state === 'error') {
+		toastTimers.set(
+			button,
+			window.setTimeout(() => {
+				toast?.classList.remove('is-visible');
+			}, state === 'error' ? 4200 : 2000),
+		);
+	}
 }
 
 function boot(): void {

@@ -12,6 +12,7 @@ import {
 import { LocalFileSource } from '../media/local';
 import { MediaSuggestModal } from '../media/picker';
 import {
+	explainSplitCueFailure,
 	mergeCueWithNext,
 	splitCueBeforeWord,
 } from '../media/cue-edit';
@@ -33,7 +34,11 @@ import {
 } from '../media/types';
 import { YouTubeSource } from '../media/youtube';
 import { youtubeSourcePath } from '../youtube/id';
-import { refineCaptionCues } from '../youtube/vtt';
+import {
+	isGleanSegmentedSubtitles,
+	refineCaptionCues,
+	snapLateBoundaryOnsets,
+} from '../youtube/vtt';
 import { GleanWordPopover } from './word-popup';
 export const LISTEN_VIEW_TYPE = 'glean-listen';
 
@@ -51,21 +56,41 @@ export interface ListenState {
 
 type DictCellView = DictCell & { span: HTMLElement };
 
-/** Apply the latest clause heal/split when opening an already-saved VTT. */
-function refineListenCues(cues: Cue[]): Cue[] {
-	return refineCaptionCues(cues).map((cue, index) => ({
+function withCueIndexes(
+	cues: Array<{
+		start: number;
+		end: number;
+		text: string;
+		words?: Cue['words'];
+	}>,
+): Cue[] {
+	return cues.map((cue, index) => ({
 		index,
 		start: cue.start,
 		end: cue.end,
 		text: cue.text,
+		words: cue.words,
 	}));
 }
 
-/** Manual edits write a lock note so we do not undo them on the next open. */
+/** Apply the latest clause heal/split when opening an already-saved VTT. */
+function refineListenCues(cues: Cue[]): Cue[] {
+	return withCueIndexes(refineCaptionCues(cues));
+}
+
+/**
+ * Timing-only pass for already-segmented / manually edited VTT.
+ * Pulls late post-pause onsets so adjacent cues do not share a stolen attack.
+ */
+function retightenListenBoundaries(cues: Cue[]): Cue[] {
+	return withCueIndexes(snapLateBoundaryOnsets(cues));
+}
+
+/** Manual edits and already-segmented syncs must not re-run NLP on open. */
 function cuesFromSubtitleBody(raw: string): Cue[] {
 	const parsed = parseSubtitles(raw);
-	if (isGleanEditedSubtitles(raw)) {
-		return parsed;
+	if (isGleanEditedSubtitles(raw) || isGleanSegmentedSubtitles(raw)) {
+		return retightenListenBoundaries(parsed);
 	}
 	return refineListenCues(parsed);
 }
@@ -1363,12 +1388,18 @@ export class ListenView extends ItemView {
 	}
 
 	private splitCueBefore(index: number, wordIndex: number): Promise<void> {
-		return this.applyCueEdit(
-			splitCueBeforeWord(this.cues, index, wordIndex),
-			'已拆成两句',
-			'这里断不开',
-			index,
-		);
+		// Always time the cut from ASR word clocks (hydrate from file timeline first
+		// if this cue lost its per-cue NOTE glean-words).
+		const next = splitCueBeforeWord(this.cues, index, wordIndex);
+		if (next) {
+			return this.applyCueEdit(next, '已拆成两句', '这里断不开', index);
+		}
+		const reason = explainSplitCueFailure(this.cues, index, wordIndex);
+		if (reason === 'missing-word-clocks') {
+			new Notice('这句缺少词级时间，重新同步后断句会对齐真实出声点');
+			return Promise.resolve();
+		}
+		return this.applyCueEdit(null, '已拆成两句', '这里断不开', index);
 	}
 
 	private mergeCueWithPrevious(index: number): Promise<void> {

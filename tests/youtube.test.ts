@@ -23,6 +23,7 @@ import {
 	healIncompleteCues,
 	refineCaptionCues,
 	refineWebVtt,
+	snapLateBoundaryOnsets,
 	splitLongCues,
 	timedTextToWebVtt,
 } from '../src/youtube/vtt';
@@ -62,8 +63,8 @@ describe('YouTube timedtext conversion', () => {
 		const cues = cuesFromTimedText(payload);
 		expect(cues).toHaveLength(1);
 		expect(cues[0]).toMatchObject({ start: 1.25, end: 3, text: 'Hello world.' });
-		expect(timedTextToWebVtt(payload)).toContain(
-			'00:00:01.250 --> 00:00:03.000\nHello world.',
+		expect(timedTextToWebVtt(payload)).toMatch(
+			/00:00:01\.250 --> 00:00:03\.000\nNOTE glean-words[^\n]+\nHello world\./,
 		);
 	});
 
@@ -245,6 +246,29 @@ describe('YouTube timedtext conversion', () => {
 		expect(texts.join(' || ')).toContain('hoiston sauce');
 	});
 
+	it('persists ASR word clocks into WebVTT so manual splits can use them', () => {
+		const asr = {
+			events: [
+				{
+					tStartMs: 2720,
+					dDurationMs: 5000,
+					segs: [
+						{ utf8: 'all' },
+						{ utf8: ' right', tOffsetMs: 800 },
+						{ utf8: ' welcome', tOffsetMs: 4591 },
+						{ utf8: ' to', tOffsetMs: 5000 },
+						{ utf8: ' China', tOffsetMs: 5400 },
+					],
+				},
+			],
+		};
+		const vtt = timedTextToWebVtt(asr);
+		expect(vtt).toMatch(/NOTE\s+glean-segmented/);
+		expect(vtt).toMatch(/NOTE\s+glean-words/);
+		expect(vtt).toMatch(/NOTE\s+glean-timeline/);
+		expect(vtt).toMatch(/7\.311:welcome/);
+	});
+
 	it('dates split cues by real word starts, not by char interpolation', () => {
 		// "all right" at 2.7s, then music, "welcome to" at ~6s, more music,
 		// "China" at ~29s. The old code interpolated "welcome to China" to ~14s
@@ -263,6 +287,63 @@ describe('YouTube timedtext conversion', () => {
 		// Real speech starts near 6s, nowhere near the old interpolated ~14s.
 		expect(welcome?.start ?? 0).toBeGreaterThan(5);
 		expect(welcome?.start ?? 0).toBeLessThan(9);
+	});
+
+	it('pulls a late ASR "China" stamp back onto welcome-to speech', () => {
+		// Real video shape: one rolling event ends on "to", next event is only
+		// "China" stamped ~22s later. Mid-phrase complement must not sit on silence.
+		const asr = {
+			events: [
+				{
+					tStartMs: 2720,
+					dDurationMs: 5000,
+					segs: [
+						{ utf8: 'all ', tOffsetMs: 0 },
+						{ utf8: 'right ', tOffsetMs: 3440 },
+						{ utf8: 'welcome ', tOffsetMs: 4440 },
+						{ utf8: 'to ', tOffsetMs: 4719 },
+					],
+				},
+				{ tStartMs: 28960, dDurationMs: 2000, segs: [{ utf8: 'China ' }] },
+				{
+					tStartMs: 32000,
+					dDurationMs: 2000,
+					segs: [
+						{ utf8: 'so ', tOffsetMs: 0 },
+						{ utf8: 'yes ', tOffsetMs: 559 },
+						{ utf8: 'guys', tOffsetMs: 920 },
+					],
+				},
+			],
+		};
+		const cues = cuesFromTimedText(asr);
+		const china = cues.find((cue) => /\bchina\b/i.test(cue.text));
+		expect(china).toBeDefined();
+		expect(china?.start ?? 99).toBeLessThan(10);
+		expect(china?.text.toLowerCase()).toMatch(/welcome to china/);
+		const so = cues.find((cue) => /^so yes guys$/i.test(cue.text.trim()));
+		expect(so?.start ?? 0).toBeGreaterThan(30);
+	});
+
+	it('does not park "welcome to China" in music when word offsets are flat', () => {
+		// Regression: discourse-splitting "all right" off a long flat-timed cue
+		// used char-ratio interpolation and dated "welcome to China" to ~12s BGM.
+		const asr = {
+			events: [
+				{
+					tStartMs: 2720,
+					dDurationMs: 29000,
+					segs: [
+						{ utf8: 'all right welcome to China' },
+					],
+				},
+			],
+		};
+		const cues = cuesFromTimedText(asr);
+		const welcome = cues.find((cue) => /welcome to china/i.test(cue.text));
+		expect(welcome).toBeDefined();
+		expect(welcome?.start ?? 99).toBeLessThan(6);
+		expect(welcome?.start ?? 0).toBeGreaterThanOrEqual(2.5);
 	});
 
 	it('cuts at the breath after "so yes guys", not before "guys"', () => {
@@ -298,6 +379,75 @@ describe('YouTube timedtext conversion', () => {
 		expect(texts.some((text) => text.startsWith('i am here'))).toBe(true);
 		expect(texts.every((text) => text !== 'so yes')).toBe(true);
 		expect(texts.every((text) => !/^guys\b/.test(text))).toBe(true);
+	});
+
+	it('does not let "so yes guys" swallow the attack of the next "I"', () => {
+		// Real vault timings: guys@32.920, I stamped @33.800 (late into the phoneme).
+		// Ending the previous cue at 33.800 steals most of "I"; the next cue only
+		// hears a stub. Snap the shared boundary back toward the end of "guys".
+		const cues = snapLateBoundaryOnsets([
+			{
+				start: 32.0,
+				end: 33.8,
+				text: 'so yes guys',
+				words: [
+					{ text: 'so', start: 32.0 },
+					{ text: 'yes', start: 32.559 },
+					{ text: 'guys', start: 32.92 },
+				],
+			},
+			{
+				start: 33.8,
+				end: 39.879,
+				text: "I am here in Shanghai China it's been a long time coming I've been wanting to come here for years and years",
+				words: [
+					{ text: 'I', start: 33.8 },
+					{ text: 'am', start: 34.239 },
+					{ text: 'here', start: 34.52 },
+				],
+			},
+		]);
+		const so = cues[0];
+		const next = cues[1];
+		expect(so).toBeDefined();
+		expect(next).toBeDefined();
+		// The whole breath goes to the next cue: cut right after "guys" is spoken.
+		expect(so!.end).toBeLessThan(33.45);
+		expect(so!.end).toBeGreaterThan(33.1);
+		expect(next!.start).toBe(so!.end);
+		expect(next!.words?.[0]?.start).toBe(so!.end);
+	});
+
+	it('times the boundary from the track\'s measured speech rate', () => {
+		// A fast speaker: 4-char words every 0.2s → 0.05 s/char. A fixed duration
+		// formula would call "guys" 0.42s long and cut at 33.34, still inside the
+		// next word. Measuring the track puts "guys" at 0.2s and cuts at ~33.12.
+		const words = [];
+		for (let i = 25; i >= 1; i -= 1) {
+			words.push({ text: 'word', start: Number((32.92 - i * 0.2).toFixed(3)) });
+		}
+		words.push({ text: 'guys', start: 32.92 });
+		const cues = snapLateBoundaryOnsets([
+			{
+				start: words[0]!.start,
+				end: 33.8,
+				text: words.map((word) => word.text).join(' '),
+				words,
+			},
+			{
+				start: 33.8,
+				end: 39.879,
+				text: 'I am here',
+				words: [
+					{ text: 'I', start: 33.8 },
+					{ text: 'am', start: 34.239 },
+					{ text: 'here', start: 34.52 },
+				],
+			},
+		]);
+		expect(cues[0]!.end).toBeLessThan(33.2);
+		expect(cues[0]!.end).toBeGreaterThan(33.0);
+		expect(cues[1]!.start).toBe(cues[0]!.end);
 	});
 
 	it('splits ">>" speaker turns and drops inline [music]', () => {

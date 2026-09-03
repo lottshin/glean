@@ -296,19 +296,20 @@ export function prepareTimedTextUrl(
 	return url.toString();
 }
 
-export function decodeTimedTextBody(
+export function acceptCaptionRaw(
 	text: string,
-	fmt: 'json3' | 'vtt',
-): string | null {
+): { fmt: 'json3' | 'vtt'; raw: string } | null {
 	const trimmed = text.trim();
 	if (!trimmed) {
 		return null;
 	}
-	if (fmt === 'json3') {
+	if (trimmed.startsWith('{')) {
 		try {
 			const payload = JSON.parse(trimmed) as TimedTextPayload;
-			const vtt = timedTextToWebVtt(payload);
-			return vtt.includes('-->') ? vtt : null;
+			if (!Array.isArray(payload.events) || payload.events.length === 0) {
+				return null;
+			}
+			return { fmt: 'json3', raw: trimmed };
 		} catch {
 			return null;
 		}
@@ -316,7 +317,28 @@ export function decodeTimedTextBody(
 	if (!/WEBVTT/i.test(trimmed)) {
 		return null;
 	}
-	return /^WEBVTT/im.test(trimmed) ? text : `WEBVTT\n\n${text}`;
+	return {
+		fmt: 'vtt',
+		raw: /^WEBVTT/im.test(trimmed) ? text : `WEBVTT\n\n${text}`,
+	};
+}
+
+export function decodeTimedTextBody(
+	text: string,
+	fmt: 'json3' | 'vtt',
+): string | null {
+	const accepted = acceptCaptionRaw(text);
+	if (!accepted) {
+		return null;
+	}
+	if (fmt === 'json3' && accepted.fmt !== 'json3') {
+		return null;
+	}
+	if (accepted.fmt === 'json3') {
+		const vtt = timedTextToWebVtt(JSON.parse(accepted.raw) as TimedTextPayload);
+		return vtt.includes('-->') ? vtt : null;
+	}
+	return accepted.raw;
 }
 
 export async function fetchTrackVtt(
@@ -361,5 +383,47 @@ export async function fetchTrackVtt(
 		return decoded;
 	}
 
+	throw new Error(`字幕下载失败（${errors.join('；') || '未知原因'}）`);
+}
+
+/** Fetch raw json3/vtt without running NLP — segmentation belongs in the SW. */
+export async function fetchTrackRaw(
+	track: CaptionTrack,
+	fetchImpl: typeof fetch = fetch,
+	videoId?: string,
+	pot?: string | null,
+): Promise<{ fmt: 'json3' | 'vtt'; raw: string }> {
+	const errors: string[] = [];
+	for (const candidate of timedTextUrls(track, videoId, pot)) {
+		let response: Response;
+		try {
+			response = await fetchImpl(candidate.url, {
+				credentials: 'include',
+				headers: { Accept: '*/*' },
+			});
+		} catch (error) {
+			errors.push(
+				`${candidate.fmt}: ${error instanceof Error ? error.message : '网络错误'}`,
+			);
+			continue;
+		}
+		if (!response.ok) {
+			errors.push(`${candidate.fmt}: HTTP ${response.status}`);
+			continue;
+		}
+		const text = await response.text();
+		if (!text.trim()) {
+			errors.push(`${candidate.fmt}: 空响应`);
+			continue;
+		}
+		const accepted = acceptCaptionRaw(text);
+		if (!accepted) {
+			errors.push(
+				`${candidate.fmt}: ${candidate.fmt === 'json3' ? '字幕 JSON 无效或为空' : '非 VTT 内容'}`,
+			);
+			continue;
+		}
+		return accepted;
+	}
 	throw new Error(`字幕下载失败（${errors.join('；') || '未知原因'}）`);
 }

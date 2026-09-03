@@ -1,4 +1,10 @@
 import type { Cue } from './types';
+import {
+	extractGleanTimeline,
+	formatGleanTimelineNote,
+	hydrateCueWordsFromTimeline,
+	timelineFromCues,
+} from './word-timeline';
 
 const TIMESTAMP =
 	/(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})/;
@@ -33,7 +39,48 @@ function stripMarkup(text: string): string {
 }
 
 function isIgnorableBlock(firstLine: string): boolean {
+	// Keep per-cue `NOTE glean-words …` — it rides inside a cue block.
+	if (/^NOTE\s+glean-words\b/i.test(firstLine)) {
+		return false;
+	}
+	// File-level `NOTE glean-timeline …` is a standalone header block (parsed
+	// separately via extractGleanTimeline), so skip it as a cue.
 	return /^(NOTE|STYLE|REGION|WEBVTT)\b/i.test(firstLine);
+}
+
+/** `NOTE glean-words 1.250:Hello 1.600:world` */
+export const GLEAN_WORDS_PREFIX = 'NOTE glean-words';
+
+export function formatGleanWordsNote(
+	words: Array<{ text: string; start: number }>,
+): string {
+	const body = words
+		.map((word) => `${word.start.toFixed(3)}:${word.text.replace(/[\s:]+/g, '_')}`)
+		.join(' ');
+	return `${GLEAN_WORDS_PREFIX} ${body}`;
+}
+
+export function parseGleanWordsNote(
+	line: string,
+): Array<{ text: string; start: number }> | null {
+	const match = line.trim().match(/^NOTE\s+glean-words\s+(.+)$/i);
+	if (!match?.[1]) {
+		return null;
+	}
+	const words: Array<{ text: string; start: number }> = [];
+	for (const token of match[1].trim().split(/\s+/)) {
+		const sep = token.indexOf(':');
+		if (sep <= 0) {
+			continue;
+		}
+		const start = Number(token.slice(0, sep));
+		const text = token.slice(sep + 1).replace(/_/g, ' ');
+		if (!Number.isFinite(start) || !text) {
+			continue;
+		}
+		words.push({ text, start });
+	}
+	return words.length > 0 ? words : null;
 }
 
 function parseTimingLine(line: string): { start: number; end: number } | null {
@@ -101,8 +148,18 @@ export function parseSubtitles(input: string): Cue[] {
 			continue;
 		}
 
-		const payload = lines.slice(timingIndex + 1).join('\n');
-		const cueText = stripMarkup(payload);
+		const payloadLines = lines.slice(timingIndex + 1);
+		let words: Cue['words'];
+		const textLines: string[] = [];
+		for (const line of payloadLines) {
+			const parsedWords = parseGleanWordsNote(line);
+			if (parsedWords) {
+				words = parsedWords;
+				continue;
+			}
+			textLines.push(line);
+		}
+		const cueText = stripMarkup(textLines.join('\n'));
 		if (cueText === '') {
 			continue;
 		}
@@ -112,10 +169,13 @@ export function parseSubtitles(input: string): Cue[] {
 			start: timing.start,
 			end: timing.end,
 			text: cueText,
+			words,
 		});
 	}
 
-	return cues;
+	// Recover word clocks from the file-level timeline when a cue lost its
+	// per-cue NOTE glean-words (common after older manual edits).
+	return hydrateCueWordsFromTimeline(cues, extractGleanTimeline(input));
 }
 
 /** Written into saved subtitle files so listen-load will not re-run auto-split. */
@@ -140,7 +200,8 @@ function formatClock(seconds: number, fractionSep: ',' | '.'): string {
 
 /**
  * Serialize cues for writing back to the vault. Marks the file as user-edited
- * so the next open will not re-run automatic clause splitting.
+ * so the next open will not re-run automatic clause splitting. Keeps the
+ * video-wide word timeline so later splits can still land on real speech times.
  */
 export function serializeSubtitles(cues: Cue[], format: 'srt' | 'vtt'): string {
 	const blocks = cues.map((cue, index) => {
@@ -148,10 +209,17 @@ export function serializeSubtitles(cues: Cue[], format: 'srt' | 'vtt'): string {
 			format === 'vtt'
 				? `${formatClock(cue.start, '.')} --> ${formatClock(cue.end, '.')}`
 				: `${formatClock(cue.start, ',')} --> ${formatClock(cue.end, ',')}`;
-		return `${index + 1}\n${stamp}\n${cue.text}`;
+		const wordNote =
+			format === 'vtt' && cue.words && cue.words.length > 0
+				? `${formatGleanWordsNote(cue.words)}\n`
+				: '';
+		return `${index + 1}\n${stamp}\n${wordNote}${cue.text}`;
 	});
 	if (format === 'vtt') {
-		return `WEBVTT\n\n${GLEAN_EDITED_NOTE}\n\n${blocks.join('\n\n')}\n`;
+		const timeline = timelineFromCues(cues);
+		const timelineBlock =
+			timeline.length > 0 ? `${formatGleanTimelineNote(timeline)}\n\n` : '';
+		return `WEBVTT\n\n${GLEAN_EDITED_NOTE}\n\n${timelineBlock}${blocks.join('\n\n')}\n`;
 	}
 	return `${GLEAN_EDITED_NOTE}\n\n${blocks.join('\n\n')}\n`;
 }

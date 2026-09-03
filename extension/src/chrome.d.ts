@@ -8,8 +8,16 @@ declare const chrome: {
 			) => Promise<Record<string, unknown>>;
 			set: (values: Record<string, unknown>) => Promise<void>;
 		};
+		local: {
+			get: (
+				keys: string | string[] | Record<string, unknown>,
+			) => Promise<Record<string, unknown>>;
+			set: (values: Record<string, unknown>) => Promise<void>;
+			remove: (keys: string | string[]) => Promise<void>;
+		};
 	};
 	runtime: {
+		lastError?: { message?: string };
 		getURL: (path: string) => string;
 		sendMessage: (message: unknown) => Promise<unknown>;
 		onMessage: {

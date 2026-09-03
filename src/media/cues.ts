@@ -1,11 +1,12 @@
 import type { Cue } from './types';
 
 /**
- * Find the cue that contains `time`. If the playhead sits in a gap,
- * return the most recent cue that already started.
+ * Find the cue that contains `time` ([start, end)).
+ * Gaps between cues return -1 so the UI does not keep highlighting a finished
+ * sentence over music/silence after seeking.
  */
 export function cueIndexAt(cues: Cue[], time: number): number {
-	if (cues.length === 0) {
+	if (cues.length === 0 || time < 0) {
 		return -1;
 	}
 	let lo = 0;
@@ -23,6 +24,17 @@ export function cueIndexAt(cues: Cue[], time: number): number {
 		} else {
 			hi = mid - 1;
 		}
+	}
+	if (candidate < 0) {
+		return -1;
+	}
+	const active = cues[candidate];
+	if (!active) {
+		return -1;
+	}
+	// Small grace so end-boundary flicker does not clear the active row.
+	if (time >= active.end + 0.05) {
+		return -1;
 	}
 	return candidate;
 }

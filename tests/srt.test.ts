@@ -91,10 +91,11 @@ describe('cueIndexAt', () => {
 		{ index: 2, start: 6, end: 8, text: 'c' },
 	];
 
-	it('finds containing cue and holds through gaps', () => {
+	it('finds containing cue and clears through gaps', () => {
 		expect(cueIndexAt(cues, 0.5)).toBe(0);
 		expect(cueIndexAt(cues, 2)).toBe(1);
-		expect(cueIndexAt(cues, 5)).toBe(1);
+		// 5s sits in the gap between cue1 end=4 and cue2 start=6.
+		expect(cueIndexAt(cues, 5)).toBe(-1);
 		expect(cueIndexAt(cues, 7)).toBe(2);
 	});
 
@@ -131,6 +132,31 @@ describe('serializeSubtitles', () => {
 			end: 3,
 			text: 'Hello',
 		});
+	});
+
+	it('round-trips glean-words so manual splits keep ASR clocks', () => {
+		const body = serializeSubtitles(
+			[
+				{
+					index: 0,
+					start: 2.72,
+					end: 32,
+					text: 'all right welcome to China',
+					words: [
+						{ text: 'all', start: 2.72 },
+						{ text: 'right', start: 3.52 },
+						{ text: 'welcome', start: 6.16 },
+						{ text: 'to', start: 6.56 },
+						{ text: 'China', start: 6.88 },
+					],
+				},
+			],
+			'vtt',
+		);
+		expect(body).toMatch(/NOTE glean-words/);
+		const cue = parseSubtitles(body)[0];
+		expect(cue?.words?.[2]).toMatchObject({ text: 'welcome', start: 6.16 });
+		expect(cue?.text).toBe('all right welcome to China');
 	});
 });
 

@@ -10,7 +10,7 @@ import {
 	type YouTubeImportPayload,
 	type YouTubeImportResponse,
 } from '../youtube/session';
-import { refineWebVtt } from '../youtube/vtt';
+import { isGleanSegmentedSubtitles, refineWebVtt } from '../youtube/vtt';
 
 export interface YouTubeReceiverOptions {
 	port: number;
@@ -135,9 +135,11 @@ export class YouTubeImportReceiver {
 		const folder = normalizePath(this.options.folder.trim() || 'Glean/YouTube');
 		await ensureFolder(this.app, folder);
 
-		// Re-segment on the plugin side so vault cues follow the latest clause rules
-		// even when the browser extension is still on an older build.
-		const vtt = refineWebVtt(payload.vtt);
+		// Extension Worker already writes glean-segmented VTT — do not re-run NLP
+		// on Obsidian's UI thread during the HTTP request.
+		const vtt = isGleanSegmentedSubtitles(payload.vtt)
+			? payload.vtt
+			: refineWebVtt(payload.vtt);
 		const cues = parseSubtitles(vtt);
 		if (cues.length === 0) {
 			throw new Error('字幕解析结果为空');

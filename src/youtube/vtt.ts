@@ -100,20 +100,24 @@ function concatWords(
 	left: TimedWord[] | undefined,
 	right: TimedWord[] | undefined,
 ): TimedWord[] | undefined {
-	return left && right ? [...left, ...right] : undefined;
+	if (!left || !right) {
+		return undefined;
+	}
+	// Re-stamp absurd jumps created when ASR emits the complement in a later
+	// event ("to" @7s + "China" @29s) so pause-splits don't park it on silence.
+	return repairWordTimings([...left, ...right]);
 }
 
 /**
  * Split one cue's text into two, dating each half by REAL word starts when
- * available. `first`/`second` need not cover the whole text (a dropped linker
- * like "and" may sit between them); we align by word counts from each end.
- * Falls back to char-ratio interpolation only when word timing is missing.
+ * available. Returns null when the cut cannot be timed safely (missing/flat
+ * clocks on a long span) — callers must keep the cue unsplit rather than guess.
  */
 function splitCueByWords(
 	cue: CaptionCue,
 	first: string,
 	second: string,
-): [CaptionCue, CaptionCue] {
+): [CaptionCue, CaptionCue] | null {
 	const leftCount = wordCount(first);
 	const rightCount = wordCount(second);
 	const words = cue.words;
@@ -125,13 +129,12 @@ function splitCueByWords(
 		leftCount + rightCount <= words.length
 	) {
 		const leftWords = words.slice(0, leftCount);
-		const rightWords = words.slice(words.length - rightCount);
+		const rightWords =
+			leftCount + rightCount === words.length
+				? words.slice(leftCount)
+				: words.slice(words.length - rightCount);
 		const leftStart = leftWords[0]?.start ?? cue.start;
 		const boundary = rightWords[0]?.start ?? cue.end;
-		// Only trust per-word timing when it actually advances at the cut. Manual
-		// captions give every word in a line the same start (no per-word offsets),
-		// so using it here would make both halves share one timestamp — the "two
-		// 00:00 cues" bug. In that case fall through to length interpolation.
 		if (boundary > leftStart) {
 			const rightEnd = Math.max(boundary + 0.2, cue.end);
 			return [
@@ -144,10 +147,31 @@ function splitCueByWords(
 				{ start: boundary, end: rightEnd, text: second, words: rightWords },
 			];
 		}
+		const advanced = rightWords.find((word) => word.start > leftStart);
+		if (advanced) {
+			return [
+				{
+					start: leftStart,
+					end: Math.max(leftStart + 0.2, advanced.start),
+					text: first,
+					words: leftWords,
+				},
+				{
+					start: advanced.start,
+					end: Math.max(advanced.start + 0.2, cue.end),
+					text: second,
+					words: rightWords,
+				},
+			];
+		}
 	}
-	// No usable word timing (e.g. manual captions, or re-refining an old vault
-	// VTT): interpolate by length so each half gets a distinct, proportional time.
+	// LAST RESORT without usable word timing.
+	// Never invent stamps across a long span (char-ratio → ~12s music;
+	// 1s pad → ~3s). Keep unsplit instead.
 	const span = Math.max(cue.end - cue.start, 0.6);
+	if (leftCount <= 3 && span > 4) {
+		return null;
+	}
 	const ratio = Math.min(0.85, Math.max(0.15, first.length / (cue.text.length || 1)));
 	const mid = cue.start + span * ratio;
 	return [
@@ -165,6 +189,60 @@ const PAUSE_SPLIT = 0.5; // above this, a real breath — a natural place to cut
 
 function estWordDuration(word: string): number {
 	return Math.min(0.55, 0.075 * word.length + 0.12);
+}
+
+/**
+ * YouTube ASR sometimes stamps a mid-phrase word near the *next* breath group
+ * (e.g. "welcome to China" with China at +21s). Pull those outliers back onto
+ * a speech-rate clock so auto-splits don't park the word on silence.
+ */
+export function repairWordTimings(words: TimedWord[]): TimedWord[] {
+	if (words.length < 2) {
+		return words;
+	}
+	const gaps: number[] = [];
+	for (let i = 1; i < words.length; i += 1) {
+		const prev = words[i - 1];
+		const cur = words[i];
+		if (prev && cur) {
+			gaps.push(cur.start - prev.start);
+		}
+	}
+	const typicalGaps = gaps.filter((gap) => gap >= 0 && gap <= 2.5).sort((a, b) => a - b);
+	const typical =
+		typicalGaps.length > 0
+			? typicalGaps[Math.floor(typicalGaps.length / 2)] ?? 0.35
+			: 0.35;
+	// Only rewrite extreme jumps — real pauses between clauses stay put.
+	const absurdGap = Math.max(4, typical * 10);
+	const out = words.map((word) => ({ ...word }));
+	for (let i = 1; i < out.length; i += 1) {
+		const prevOrig = words[i - 1];
+		const curOrig = words[i];
+		const prev = out[i - 1];
+		if (!prevOrig || !curOrig || !prev) {
+			continue;
+		}
+		const gap = curOrig.start - prevOrig.start;
+		if (gap <= absurdGap) {
+			continue;
+		}
+		out[i] = {
+			text: curOrig.text,
+			start: prev.start + estWordDuration(prev.text),
+		};
+	}
+	for (let i = 1; i < out.length; i += 1) {
+		const prev = out[i - 1];
+		const cur = out[i];
+		// Only fix true inversions. Shared ASR stamps (flat offsets) must stay
+		// equal — bumping them by ε makes pauseAfter() see a fake micro-gap and
+		// blocks discourse splits like "all right | welcome…".
+		if (prev && cur && cur.start < prev.start) {
+			out[i] = { ...cur, start: prev.start };
+		}
+	}
+	return out;
 }
 
 /**
@@ -255,12 +333,23 @@ interface NlpPhrase {
 	};
 }
 
+/** Memoize compromise parses — merge/split ask about the same edges many times. */
+const nlpTermsCache = new Map<string, NlpTerm[]>();
+const phraseCrossCache = new Map<string, boolean>();
+
 function nlpTerms(text: string): NlpTerm[] {
-	const sentence = nlp(text).json()[0];
-	return (sentence?.terms ?? []).map((term: NlpTerm) => ({
+	const key = text.trim();
+	const cached = nlpTermsCache.get(key);
+	if (cached) {
+		return cached;
+	}
+	const sentence = nlp(key).json()[0];
+	const terms = (sentence?.terms ?? []).map((term: NlpTerm) => ({
 		text: term.text,
 		tags: term.tags ?? [],
 	}));
+	nlpTermsCache.set(key, terms);
+	return terms;
 }
 
 function hasTag(term: NlpTerm | undefined, ...tags: string[]): boolean {
@@ -277,29 +366,44 @@ function lastNlpTerm(text: string): NlpTerm | undefined {
 	return nlpTerms(text).at(-1);
 }
 
+/**
+ * Content vs function word without calling compromise. Closed-class lists are
+ * finite; paying for a full POS parse per token was the dominant sync cost.
+ */
 function isContentWord(word: string): boolean {
-	if (!word || FILLER_ONLY.test(word)) {
+	const token = normalizeToken(word);
+	if (!token || FILLER_ONLY.test(token)) {
 		return false;
 	}
-	return hasTag(
-		firstVisibleTerm(word),
-		'Noun',
-		'Verb',
-		'Adjective',
-		'Adverb',
-		'Value',
-	);
+	if (
+		CLAUSE_CONNECTOR.test(token) ||
+		REL_PRONOUN.test(token) ||
+		NEEDS_COMPLEMENT.test(token) ||
+		/^(the|a|an|this|that|these|those|my|your|his|her|its|our|their|i|me|we|us|you|he|she|it|they|them|be|am|is|are|was|were|been|being|do|does|did|have|has|had|will|would|can|could|should|may|might|must|not|n't|and|but|or|nor|so|yet|to|of|in|on|at|for|with|by|as|from)$/i.test(
+			token,
+		)
+	) {
+		return false;
+	}
+	return /[a-z]/i.test(token);
 }
 
 function phraseCrossesBoundary(left: string, right: string): boolean {
-	const joined = `${left.trim()} ${right.trim()}`;
-	const boundary = left.trim().length;
+	const leftText = left.trim();
+	const rightText = right.trim();
+	const cacheKey = `${leftText}\u0000${rightText}`;
+	const cached = phraseCrossCache.get(cacheKey);
+	if (cached !== undefined) {
+		return cached;
+	}
+	const joined = `${leftText} ${rightText}`;
+	const boundary = leftText.length;
 	const document = nlp(joined);
 	const phrases = [
 		...document.nouns().json({ offset: true }),
 		...document.verbs().json({ offset: true }),
 	] as NlpPhrase[];
-	return phrases.some((phrase) => {
+	const crosses = phrases.some((phrase) => {
 		const start = phrase.offset?.start;
 		const length = phrase.offset?.length;
 		return (
@@ -309,6 +413,18 @@ function phraseCrossesBoundary(left: string, right: string): boolean {
 			start + length > boundary + 1
 		);
 	});
+	phraseCrossCache.set(cacheKey, crosses);
+	return crosses;
+}
+
+/** Closed-class stranding only — used on clear breath boundaries to skip NLP. */
+function closedClassForbidsSplit(left: string): boolean {
+	const tail = lastToken(left);
+	return (
+		CLAUSE_CONNECTOR.test(tail) ||
+		REL_PRONOUN.test(tail) ||
+		NEEDS_COMPLEMENT.test(tail)
+	);
 }
 
 /**
@@ -385,7 +501,8 @@ function nlpSaysAttach(left: string, right: string): boolean {
  * "well", "anyway"). This is a FINITE set — it never grows per video — so it is
  * not the open-class enumeration we are trying to avoid.
  */
-const DISCOURSE_MARKER = /^(all right|alright|well|anyway|right|now)\b[,.!?]?$/i;
+const DISCOURSE_MARKER =
+	/^(all right|alright|well|anyway|right|now|okay|ok|hey|oh|ah)\b[,.!?]?$/i;
 
 /** A standalone discourse opener ("all right", "okay", "so", "um"). */
 function opensDiscourse(text: string): boolean {
@@ -393,38 +510,26 @@ function opensDiscourse(text: string): boolean {
 	if (!trimmed) {
 		return false;
 	}
-	return (
-		hasTag(firstVisibleTerm(trimmed), 'Expression') ||
-		DISCOURSE_MARKER.test(trimmed)
-	);
+	// Cheap closed-class markers first — avoid compromise on the common path.
+	if (DISCOURSE_MARKER.test(trimmed)) {
+		return true;
+	}
+	return hasTag(firstVisibleTerm(trimmed), 'Expression');
 }
 
 /**
- * Does `right` begin a new clause? Pure POS — no open-class words. A clause
- * opens on a discourse marker (Expression), a conjunction, or a fresh
- * subject+predicate (pronoun followed by a verb).
- */
-/**
  * Does `text` begin a NEW main clause? Reliable, video-independent signals only:
- * a discourse marker, or a coordinating/subordinating connector. A bare
- * "pronoun + verb" is deliberately NOT treated as a cut point — it fires inside
- * relative, complement and adverbial clauses ("the thing that I love", "by the
- * time I got there"), so using it as a boundary shreds those constituents.
- * Real main-clause boundaries are carried by punctuation and breath instead.
+ * a discourse marker, or a coordinating/subordinating connector. No NLP parse.
  */
 function opensNewClause(text: string): boolean {
-	const terms = nlpTerms(text).filter((term) => term.text.length > 0);
-	const head = terms[0];
-	if (!head) {
+	const trimmed = text.trim();
+	if (!trimmed) {
 		return false;
 	}
-	if (opensDiscourse(text)) {
+	if (opensDiscourse(trimmed)) {
 		return true;
 	}
-	if (CLAUSE_CONNECTOR.test(head.text)) {
-		return true;
-	}
-	return false;
+	return CLAUSE_CONNECTOR.test(firstToken(trimmed));
 }
 
 /**
@@ -693,7 +798,11 @@ function splitOneLongCue(cue: CaptionCue): CaptionCue[] {
 	}
 
 	const { first, second } = parts;
-	const [leftCue, rightCue] = splitCueByWords(normalized, first, second);
+	const split = splitCueByWords(normalized, first, second);
+	if (!split) {
+		return [normalized];
+	}
+	const [leftCue, rightCue] = split;
 	return [...splitOneLongCue(leftCue), ...splitOneLongCue(rightCue)];
 }
 
@@ -743,7 +852,12 @@ export function splitDiscourseCues(cues: CaptionCue[]): CaptionCue[] {
 			out.push({ ...cue, text });
 			continue;
 		}
-		const [openerCue, restCue] = splitCueByWords({ ...cue, text }, opener, rest);
+		const split = splitCueByWords({ ...cue, text }, opener, rest);
+		if (!split) {
+			out.push({ ...cue, text });
+			continue;
+		}
+		const [openerCue, restCue] = split;
 		out.push(openerCue, restCue);
 	}
 	return out;
@@ -946,10 +1060,6 @@ export function mergeCaptionCues(cues: CaptionCue[]): CaptionCue[] {
 		const duration = Math.max(draft.end, cue.end) - draft.start;
 		const draftWords = wordCount(draft.text);
 		const nextWords = wordCount(text);
-		const mustAttach = shouldAttachCues(draft.text, text);
-		const draftIsOpener =
-			opensDiscourse(draft.text) && wordCount(draft.text) <= 3;
-		const nextIsNewUtterance = startsNewUtterance(text);
 		// Breath between the two drafts, measured on real word starts.
 		const lastDraftWord = draft.words?.[draft.words.length - 1];
 		const firstNextWord = cue.words?.[0];
@@ -957,25 +1067,30 @@ export function mergeCaptionCues(cues: CaptionCue[]): CaptionCue[] {
 			lastDraftWord && firstNextWord && firstNextWord.start > lastDraftWord.start
 				? Math.max(
 						0,
-						firstNextWord.start - lastDraftWord.start - estWordDuration(lastDraftWord.text),
+						firstNextWord.start -
+							lastDraftWord.start -
+							estWordDuration(lastDraftWord.text),
 					)
 				: null;
 		const continuousIntoNext =
 			boundaryPause !== null && boundaryPause < PAUSE_CONTINUOUS;
 
-		// A real breath is a hard boundary — never merge across silence, unless
-		// the two sides form one unbreakable phrase (a preposition needing its
-		// object, etc.). A lone word is too incomplete to strand.
+		// Acoustic-first: clear breath + no closed-class stranding → cut, no NLP.
 		if (
 			boundaryPause !== null &&
 			boundaryPause >= PAUSE_SPLIT &&
-			wordCount(draft.text) >= 2 &&
-			!breaksConstituent(draft.text, text)
+			draftWords >= 2 &&
+			!closedClassForbidsSplit(draft.text)
 		) {
 			flush();
 			draft = { start: cue.start, end: cue.end, text, words: cue.words };
 			continue;
 		}
+
+		const mustAttach = shouldAttachCues(draft.text, text);
+		const draftIsOpener =
+			opensDiscourse(draft.text) && wordCount(draft.text) <= 3;
+		const nextIsNewUtterance = startsNewUtterance(text);
 
 		// Don't glue "all right" onto "welcome to China" — unless it's read as one
 		// breath group, in which case keep it for a later breath-aligned cut.
@@ -1028,11 +1143,140 @@ export function mergeCaptionCues(cues: CaptionCue[]): CaptionCue[] {
 	}
 
 	flush();
-	return healIncompleteCues(
-		splitDiscourseCues(
-			merged.filter((cue) => cue.text.length > 0 && cue.end > cue.start),
+	return tightenCueEnds(
+		healIncompleteCues(
+			splitDiscourseCues(
+				merged.filter((cue) => cue.text.length > 0 && cue.end > cue.start),
+			),
 		),
 	);
+}
+
+/**
+ * When the next cue is far away (music/silence), shrink this cue's end to the
+ * last spoken word so seeking into the gap does not keep highlighting it.
+ * Do not shrink when cues are already contiguous — that would fight ASR ends.
+ *
+ * Contiguous cues get a second pass (`snapLateBoundaryOnsets`): YouTube often
+ * stamps the first word after a breath late (mid/end of the phoneme), so
+ * ending the previous cue at that stamp steals the attack ("guys" hears "I").
+ */
+function tightenCueEnds(cues: CaptionCue[]): CaptionCue[] {
+	const tightened = cues.map((cue, index) => {
+		const next = cues[index + 1];
+		let end = cue.end;
+		if (next && next.start > cue.start) {
+			end = Math.min(end, next.start);
+		}
+		const trailing = next ? next.start - Math.min(cue.end, next.start) : 0;
+		const words = cue.words;
+		// Only tighten when a following cue leaves a long empty tail (BGM/silence).
+		if (words && words.length > 0 && next && trailing >= PAUSE_SPLIT) {
+			const last = words[words.length - 1];
+			if (last) {
+				const spokenEnd = last.start + estWordDuration(last.text) + 0.35;
+				// Only pull the end forward when ASR left a long empty tail.
+				if (end - spokenEnd >= PAUSE_SPLIT) {
+					end = Math.max(cue.start + 0.3, Math.min(next.start, spokenEnd));
+				}
+			}
+		}
+		if (!(end > cue.start)) {
+			end = Math.min(cue.end, cue.start + 0.4);
+		}
+		return end === cue.end ? cue : { ...cue, end };
+	});
+	return snapLateBoundaryOnsets(tightened);
+}
+
+/** Fallback speech rate (seconds per character) when a track is too short. */
+const DEFAULT_SECONDS_PER_CHAR = 0.06;
+const MIN_MEASURED_PAIRS = 24;
+
+/**
+ * Measure this speaker's rate from the track's own word clocks.
+ * Only consecutive words inside one breath (0.04–0.6s apart) describe speech
+ * rate; longer gaps are pauses. Beats a hard-coded duration formula, which
+ * over-estimates short words and pushes cue boundaries past the next onset.
+ */
+function measureSecondsPerChar(cues: CaptionCue[]): number {
+	const ratios: number[] = [];
+	for (const cue of cues) {
+		const words = cue.words;
+		if (!words) {
+			continue;
+		}
+		for (let i = 1; i < words.length; i += 1) {
+			const prev = words[i - 1];
+			const cur = words[i];
+			if (!prev || !cur) {
+				continue;
+			}
+			const gap = cur.start - prev.start;
+			if (gap >= 0.04 && gap <= 0.6 && prev.text.length > 0) {
+				ratios.push(gap / prev.text.length);
+			}
+		}
+	}
+	if (ratios.length < MIN_MEASURED_PAIRS) {
+		return DEFAULT_SECONDS_PER_CHAR;
+	}
+	ratios.sort((a, b) => a - b);
+	const median = ratios[Math.floor(ratios.length / 2)] ?? DEFAULT_SECONDS_PER_CHAR;
+	return Math.min(0.12, Math.max(0.03, median));
+}
+
+/**
+ * Pull a shared cue boundary back when the next cue's first word is stamped
+ * late after a pause. Keeps the previous cue from swallowing the attack.
+ */
+export function snapLateBoundaryOnsets(cues: CaptionCue[]): CaptionCue[] {
+	if (cues.length < 2) {
+		return cues;
+	}
+	const secondsPerChar = measureSecondsPerChar(cues);
+	const spokenDuration = (word: string): number =>
+		Math.min(0.5, Math.max(0.08, secondsPerChar * word.length));
+	const out: CaptionCue[] = cues.map((cue) => ({
+		...cue,
+		words: cue.words?.map((word) => ({ ...word })),
+	}));
+	for (let i = 0; i < out.length - 1; i += 1) {
+		const left = out[i];
+		const right = out[i + 1];
+		if (!left || !right) {
+			continue;
+		}
+		const last = left.words?.[left.words.length - 1];
+		const first = right.words?.[0];
+		if (!last || !first) {
+			continue;
+		}
+		const asrOnset = first.start;
+		// Left cue must still be running into the next word's ASR stamp.
+		if (left.end < asrOnset - 0.05) {
+			continue;
+		}
+		const spokenEnd = last.start + spokenDuration(last.text);
+		const gap = asrOnset - spokenEnd;
+		// Need a real post-word pause, but not an absurd music/silence hole.
+		if (gap < 0.12 || gap > 2.5) {
+			continue;
+		}
+		// The breath belongs to the next cue: leading silence there is harmless,
+		// while any of it kept on the left cue is already the next word's attack.
+		const onset = Math.min(spokenEnd, asrOnset);
+		if (asrOnset - onset < 0.06) {
+			continue;
+		}
+		first.start = onset;
+		left.end = onset;
+		right.start = onset;
+		if (right.words && right.words.length > 0) {
+			right.words[0] = first;
+		}
+	}
+	return out;
 }
 
 /**
@@ -1053,15 +1297,16 @@ export function cuesFromTimedText(payload: TimedTextPayload): CaptionCue[] {
 			continue;
 		}
 		// Real per-word timing: each seg carries an offset from the event start.
-		const words: TimedWord[] = [];
+		const rawWords: TimedWord[] = [];
 		for (const segment of event.segs) {
 			const segStart = event.tStartMs + (segment.tOffsetMs ?? 0);
 			for (const token of (segment.utf8 ?? '').split(/\s+/)) {
 				if (token) {
-					words.push({ text: token, start: segStart / 1000 });
+					rawWords.push({ text: token, start: segStart / 1000 });
 				}
 			}
 		}
+		const words = repairWordTimings(rawWords);
 		const text = words.map((word) => word.text).join(' ');
 		if (!text || isNoiseCaption(text)) {
 			continue;
@@ -1109,19 +1354,54 @@ export function cuesFromTimedText(payload: TimedTextPayload): CaptionCue[] {
 	return mergeCaptionCues(raw);
 }
 
+/**
+ * @deprecated Kept as a named hook for tests; cross-event stamps are repaired
+ * when incomplete cues are healed (see healIncompleteCues).
+ */
+export function repairCrossEventWordClocks(cues: CaptionCue[]): CaptionCue[] {
+	return cues;
+}
+
+/** Persist ASR word clocks so manual splits can land on real speech times. */
+function formatGleanWordsLine(words: TimedWord[]): string {
+	const body = words
+		.map((word) => `${word.start.toFixed(3)}:${word.text.replace(/[\s:]+/g, '_')}`)
+		.join(' ');
+	return `NOTE glean-words ${body}`;
+}
+
 export function cuesToWebVtt(cues: CaptionCue[]): string {
+	const timeline = cues.flatMap((cue) => cue.words ?? []);
+	const timelineBlock =
+		timeline.length > 0
+			? `NOTE glean-timeline ${timeline
+					.map((word) => `${word.start.toFixed(3)}:${word.text.replace(/[\s:]+/g, '_')}`)
+					.join(' ')}\n\n`
+			: '';
 	const blocks = cues.map((cue, index) => {
-		return [
+		const lines = [
 			String(index + 1),
 			`${formatVttTimestamp(cue.start)} --> ${formatVttTimestamp(cue.end)}`,
-			cue.text,
-		].join('\n');
+		];
+		if (cue.words && cue.words.length > 0) {
+			lines.push(formatGleanWordsLine(cue.words));
+		}
+		lines.push(cue.text);
+		return lines.join('\n');
 	});
-	return `WEBVTT\n\n${blocks.join('\n\n')}\n`;
+	return `WEBVTT\n\n${timelineBlock}${blocks.join('\n\n')}\n`;
+}
+
+/** Marks VTT that already went through full Glean segmentation. */
+export const GLEAN_SEGMENTED_NOTE = 'NOTE glean-segmented';
+
+export function isGleanSegmentedSubtitles(input: string): boolean {
+	return /NOTE\s+glean-segmented\b/i.test(input);
 }
 
 export function timedTextToWebVtt(payload: TimedTextPayload): string {
-	return cuesToWebVtt(cuesFromTimedText(payload));
+	const body = cuesToWebVtt(cuesFromTimedText(payload));
+	return body.replace(/^WEBVTT\n/, `WEBVTT\n\n${GLEAN_SEGMENTED_NOTE}\n`);
 }
 
 /** Ensure a VTT/string body starts with WEBVTT; pass through when already VTT. */
@@ -1141,15 +1421,17 @@ export function refineCaptionCues(cues: CaptionCue[]): CaptionCue[] {
 	const exploded = explodeSpeakerTurns(
 		cues.filter((cue) => cue.end > cue.start),
 	);
-	return healIncompleteCues(
-		exploded
-			.map((cue) => ({
-				start: cue.start,
-				end: cue.end,
-				text: cleanCaptionText(cue.text),
-				words: cue.words,
-			}))
-			.filter((cue) => cue.text.length > 0 && cue.end > cue.start),
+	return tightenCueEnds(
+		healIncompleteCues(
+			exploded
+				.map((cue) => ({
+					start: cue.start,
+					end: cue.end,
+					text: cleanCaptionText(cue.text),
+					words: cue.words,
+				}))
+				.filter((cue) => cue.text.length > 0 && cue.end > cue.start),
+		),
 	);
 }
 
@@ -1181,11 +1463,28 @@ export function refineWebVtt(input: string): string {
 				.trim()
 				.replace(/\s.*/, ''),
 		);
-		const text = lines
-			.slice(timingIndex + 1)
-			.join(' ')
-			.replace(/\s+/g, ' ')
-			.trim();
+		const payload = lines.slice(timingIndex + 1);
+		const words: TimedWord[] = [];
+		const textParts: string[] = [];
+		for (const line of payload) {
+			const match = line.match(/^NOTE\s+glean-words\s+(.+)$/i);
+			if (match?.[1]) {
+				for (const token of match[1].trim().split(/\s+/)) {
+					const sep = token.indexOf(':');
+					if (sep <= 0) {
+						continue;
+					}
+					const wordStart = Number(token.slice(0, sep));
+					const wordText = token.slice(sep + 1).replace(/_/g, ' ');
+					if (Number.isFinite(wordStart) && wordText) {
+						words.push({ text: wordText, start: wordStart });
+					}
+				}
+				continue;
+			}
+			textParts.push(line);
+		}
+		const text = textParts.join(' ').replace(/\s+/g, ' ').trim();
 		if (
 			start === null ||
 			end === null ||
@@ -1195,7 +1494,12 @@ export function refineWebVtt(input: string): string {
 		) {
 			continue;
 		}
-		cues.push({ start, end, text });
+		cues.push({
+			start,
+			end,
+			text,
+			words: words.length > 0 ? words : undefined,
+		});
 	}
 	return cuesToWebVtt(refineCaptionCues(cues));
 }

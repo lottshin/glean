@@ -3,6 +3,11 @@ export interface Cue {
 	start: number;
 	end: number;
 	text: string;
+	/**
+	 * Optional per-word audio starts (seconds). Written by YouTube sync into VTT
+	 * as `NOTE glean-words`, so manual splits can land on real speech times.
+	 */
+	words?: Array<{ text: string; start: number }>;
 }
 
 export type MediaKind = 'local' | 'youtube' | 'bilibili';

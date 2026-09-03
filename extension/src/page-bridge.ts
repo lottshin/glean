@@ -1,6 +1,6 @@
 import {
 	captureYouTubePage,
-	decodeTimedTextBody,
+	acceptCaptionRaw,
 	prepareTimedTextUrl,
 	type CaptionTrack,
 } from './capture';
@@ -213,27 +213,29 @@ async function fetchTimedTextInPage(
 	track: CaptionTrack,
 	videoId: string,
 ): Promise<string> {
-	const tryDecode = (raw: string): string | null => {
+	// Return RAW json3/vtt only — full NLP segmentation runs once in the
+	// extension service worker so the YouTube tab stays responsive.
+	const tryAccept = (raw: string): string | null => {
 		if (!cacheMatchesTrack(raw, track.languageCode)) {
 			return null;
 		}
-		return decodeTimedTextBody(raw, 'json3') ?? decodeTimedTextBody(raw, 'vtt');
+		return acceptCaptionRaw(raw)?.raw ?? null;
 	};
 
 	const cached = findCachedTimedText(videoId, track.languageCode);
 	if (cached) {
-		const decoded = tryDecode(cached);
-		if (decoded) {
-			return decoded;
+		const accepted = tryAccept(cached);
+		if (accepted) {
+			return accepted;
 		}
 	}
 
 	await ensureCaptionsWarm();
 	const warmed = findCachedTimedText(videoId, track.languageCode);
 	if (warmed) {
-		const decoded = tryDecode(warmed);
-		if (decoded) {
-			return decoded;
+		const accepted = tryAccept(warmed);
+		if (accepted) {
+			return accepted;
 		}
 	}
 
@@ -264,9 +266,12 @@ async function fetchTimedTextInPage(
 				errors.push(`${fmt}: 语言与所选轨道不符`);
 				continue;
 			}
-			const decoded = decodeTimedTextBody(text, fmt);
-			if (decoded) {
-				return decoded;
+			const accepted = acceptCaptionRaw(text);
+			if (accepted && (accepted.fmt === fmt || accepted.fmt === 'json3')) {
+				return accepted.raw;
+			}
+			if (accepted) {
+				return accepted.raw;
 			}
 			errors.push(`${fmt}: 无法解析`);
 		} catch (error) {
