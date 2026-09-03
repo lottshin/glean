@@ -1,7 +1,22 @@
 import type { IncomingMessage, Server, ServerResponse } from 'http';
-import { normalizePath, Notice, TFile, type App } from 'obsidian';
+import {
+	normalizePath,
+	Notice,
+	requestUrl,
+	TFile,
+	type App,
+} from 'obsidian';
 import { loadNodeModule } from '../node-bridge';
 import { parseSubtitles } from '../media/srt';
+import {
+	bilibiliAudioPath,
+	bilibiliNotePath,
+	bilibiliSubtitlePath,
+	buildBilibiliSessionNote,
+	validateBilibiliImportPayload,
+	type BilibiliImportPayload,
+	type BilibiliImportResponse,
+} from '../bilibili/session';
 import {
 	buildYouTubeSessionNote,
 	validateImportPayload,
@@ -16,11 +31,20 @@ export interface YouTubeReceiverOptions {
 	port: number;
 	token: string;
 	folder: string;
+	bilibiliFolder?: string;
+	downloadBilibiliAudio?: (urls: string[]) => Promise<ArrayBuffer>;
 	onImported?: (result: {
 		videoId: string;
 		title: string;
 		notePath: string;
 		subtitlePath: string;
+	}) => void;
+	onBilibiliImported?: (result: {
+		bvid: string;
+		title: string;
+		notePath: string;
+		subtitlePath: string;
+		audioPath: string;
 	}) => void;
 }
 
@@ -92,13 +116,32 @@ export class YouTubeImportReceiver {
 			return;
 		}
 
-		if (req.method !== 'POST' || url.pathname !== '/glean/import') {
+		const isYouTubeImport =
+			req.method === 'POST' && url.pathname === '/glean/import';
+		const isBilibiliImport =
+			req.method === 'POST' && url.pathname === '/glean/import/bilibili';
+		if (!isYouTubeImport && !isBilibiliImport) {
 			json(res, 404, { ok: false, error: 'not found' } satisfies YouTubeImportResponse);
 			return;
 		}
 
 		try {
 			const body = await readJson(req);
+			if (isBilibiliImport) {
+				const validated = validateBilibiliImportPayload(body);
+				if (!validated.ok) {
+					json(res, 400, { ok: false, error: validated.error });
+					return;
+				}
+				if (validated.payload.token !== this.options.token) {
+					json(res, 401, { ok: false, error: 'token 无效' });
+					return;
+				}
+				const imported = await this.importBilibiliPayload(validated.payload);
+				json(res, 200, { ok: true, ...imported } satisfies BilibiliImportResponse);
+				this.options.onBilibiliImported?.(imported);
+				return;
+			}
 			const validated = validateImportPayload(body);
 			if (!validated.ok) {
 				json(res, 400, { ok: false, error: validated.error });
@@ -124,6 +167,65 @@ export class YouTubeImportReceiver {
 				error: error instanceof Error ? error.message : '导入失败',
 			});
 		}
+	}
+
+	private async importBilibiliPayload(payload: BilibiliImportPayload): Promise<{
+		bvid: string;
+		title: string;
+		notePath: string;
+		subtitlePath: string;
+		audioPath: string;
+	}> {
+		const folder = normalizePath(
+			this.options.bilibiliFolder?.trim() || 'Glean/Bilibili',
+		);
+		await ensureFolder(this.app, folder);
+
+		const cues = parseSubtitles(payload.vtt);
+		if (cues.length === 0) {
+			throw new Error('字幕解析结果为空');
+		}
+		const subtitlePath = normalizePath(
+			bilibiliSubtitlePath(folder, payload.bvid, payload.page, payload.lang),
+		);
+		const audioPath = normalizePath(
+			bilibiliAudioPath(folder, payload.bvid, payload.page),
+		);
+		const notePath = normalizePath(
+			bilibiliNotePath(folder, payload.title, payload.bvid, payload.page),
+		);
+
+		const audio = this.options.downloadBilibiliAudio
+			? await this.options.downloadBilibiliAudio(payload.audioUrls)
+			: await downloadBilibiliAudio(payload.audioUrls);
+		if (audio.byteLength === 0) {
+			throw new Error('B 站音频为空');
+		}
+
+		await writeTextFile(this.app, subtitlePath, payload.vtt);
+		await writeBinaryFile(this.app, audioPath, audio);
+		await writeTextFile(
+			this.app,
+			notePath,
+			buildBilibiliSessionNote({
+				title: payload.title,
+				bvid: payload.bvid,
+				page: payload.page,
+				cid: payload.cid,
+				owner: payload.owner,
+				url: payload.url,
+				lang: payload.lang,
+				subtitlePath,
+				audioPath,
+			}),
+		);
+		return {
+			bvid: payload.bvid,
+			title: payload.title,
+			notePath,
+			subtitlePath,
+			audioPath,
+		};
 	}
 
 	private async importPayload(payload: YouTubeImportPayload): Promise<{
@@ -255,6 +357,49 @@ async function writeTextFile(app: App, path: string, content: string): Promise<v
 		throw new Error(`路径被占用：${path}`);
 	}
 	await app.vault.create(path, content);
+}
+
+async function writeBinaryFile(
+	app: App,
+	path: string,
+	content: ArrayBuffer,
+): Promise<void> {
+	const existing = app.vault.getAbstractFileByPath(path);
+	if (existing instanceof TFile) {
+		await app.vault.modifyBinary(existing, content);
+		return;
+	}
+	if (existing) {
+		throw new Error(`路径被占用：${path}`);
+	}
+	await app.vault.createBinary(path, content);
+}
+
+async function downloadBilibiliAudio(urls: string[]): Promise<ArrayBuffer> {
+	const errors: string[] = [];
+	for (const url of urls) {
+		try {
+			const response = await requestUrl({
+				url,
+				method: 'GET',
+				headers: {
+					Referer: 'https://www.bilibili.com/',
+					'User-Agent':
+						'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+				},
+				throw: false,
+			});
+			if (response.status >= 200 && response.status < 300) {
+				return response.arrayBuffer;
+			}
+			errors.push(`HTTP ${response.status}`);
+		} catch (error) {
+			errors.push(error instanceof Error ? error.message : '网络错误');
+		}
+	}
+	throw new Error(
+		`B 站音频下载失败（${errors.join('；') || '所有地址均已失效'}）`,
+	);
 }
 
 export function createReceiverToken(): string {

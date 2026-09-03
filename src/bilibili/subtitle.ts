@@ -1,4 +1,9 @@
-import { cuesToWebVtt, refineCaptionCues, type CaptionCue } from '../youtube/vtt';
+import {
+	cuesToWebVtt,
+	GLEAN_SEGMENTED_NOTE,
+	refineCaptionCues,
+	type CaptionCue,
+} from '../youtube/vtt';
 
 /**
  * Shape returned by aisubtitle.hdslb.com. Unlike YouTube's json3, Bilibili
@@ -133,5 +138,7 @@ export function bilibiliSubtitleToWebVtt(
 	if (cues.length === 0) {
 		return '';
 	}
-	return cuesToWebVtt(options.refine ? refineCaptionCues(cues) : cues);
+	return cuesToWebVtt(
+		options.refine ? refineCaptionCues(cues) : cues,
+	).replace(/^WEBVTT\n/, `WEBVTT\n\n${GLEAN_SEGMENTED_NOTE}\n`);
 }

@@ -28,6 +28,7 @@ export interface GleanSettings {
 	youtubeReceiverPort: number;
 	youtubeReceiverToken: string;
 	youtubeFolder: string;
+	bilibiliFolder: string;
 	readingHintRank: ReadingHintRank;
 	translateEnabled: boolean;
 	translateProvider: TranslationProvider;
@@ -48,6 +49,7 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	youtubeReceiverPort: 17865,
 	youtubeReceiverToken: '',
 	youtubeFolder: 'Glean/YouTube',
+	bilibiliFolder: 'Glean/Bilibili',
 	readingHintRank: DEFAULT_READING_HINT_RANK,
 	translateEnabled: false,
 	translateProvider: 'openai',
@@ -85,8 +87,8 @@ export class GleanSettingTab extends PluginSettingTab {
 						},
 					},
 					{
-						name: 'Glean YouTube Capture',
-						desc: '采集 YouTube 字幕并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+						name: 'Glean Capture',
+						desc: '采集 YouTube 字幕，或 B 站英文字幕与纯音频，并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
 						aliases: ['youtube', '扩展'],
 					},
 				],
@@ -160,11 +162,11 @@ export class GleanSettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
-				heading: 'YouTube 采集接收端',
+				heading: '浏览器采集接收端',
 				items: [
 					{
 						name: '启用接收端',
-						desc: '仅桌面端在 127.0.0.1 启动，用于接收上方 Glean YouTube Capture 采集的字幕。',
+						desc: '仅桌面端在 127.0.0.1 启动，用于接收上方 Glean Capture 采集的字幕和音频。',
 						control: {
 							type: 'toggle',
 							key: 'youtubeReceiverEnabled',
@@ -199,6 +201,16 @@ export class GleanSettingTab extends PluginSettingTab {
 							type: 'text',
 							key: 'youtubeFolder',
 							defaultValue: DEFAULT_SETTINGS.youtubeFolder,
+						},
+					},
+					{
+						name: 'B 站采集目录',
+						desc: 'B 站英文字幕、纯音频和会话笔记存放的 vault 相对路径。',
+						visible: () => this.plugin.settings.youtubeReceiverEnabled,
+						control: {
+							type: 'text',
+							key: 'bilibiliFolder',
+							defaultValue: DEFAULT_SETTINGS.bilibiliFolder,
 						},
 					},
 				],
@@ -346,12 +358,18 @@ export class GleanSettingTab extends PluginSettingTab {
 			}
 			return;
 		}
-		if (key === 'youtubeReceiverToken' || key === 'youtubeFolder') {
+		if (
+			key === 'youtubeReceiverToken' ||
+			key === 'youtubeFolder' ||
+			key === 'bilibiliFolder'
+		) {
 			const next = typeof value === 'string' ? value.trim() : '';
 			this.plugin.settings[key] =
 				next ||
 				(key === 'youtubeFolder'
 					? DEFAULT_SETTINGS.youtubeFolder
+					: key === 'bilibiliFolder'
+						? DEFAULT_SETTINGS.bilibiliFolder
 					: this.plugin.settings.youtubeReceiverToken);
 			await this.plugin.saveSettings();
 			await this.plugin.refreshYouTubeReceiver();
@@ -408,7 +426,7 @@ export class GleanSettingTab extends PluginSettingTab {
 				button.setButtonText('打开官网').onClick(() => window.open(CLIPPER_URL)),
 			);
 		new Setting(containerEl)
-			.setName('Glean YouTube Capture')
+			.setName('Glean Capture')
 			.setDesc(
 				'采集 YouTube 字幕并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
 			);
@@ -483,7 +501,7 @@ export class GleanSettingTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(containerEl).setName('YouTube 采集接收端').setHeading();
+		new Setting(containerEl).setName('浏览器采集接收端').setHeading();
 
 		const receiverRunning = this.plugin.isYouTubeReceiverRunning();
 		new Setting(containerEl)
@@ -504,7 +522,7 @@ export class GleanSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('启用接收端')
-			.setDesc('仅桌面端在 127.0.0.1 启动，用于接收上方 Glean YouTube Capture 采集的字幕。')
+			.setDesc('仅桌面端在 127.0.0.1 启动，用于接收上方 Glean Capture 采集的字幕和音频。')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.youtubeReceiverEnabled)
@@ -558,6 +576,20 @@ export class GleanSettingTab extends PluginSettingTab {
 						.onChange(async (value) => {
 							this.plugin.settings.youtubeFolder =
 								value.trim() || DEFAULT_SETTINGS.youtubeFolder;
+							await this.plugin.saveSettings();
+							await this.plugin.refreshYouTubeReceiver();
+						}),
+				);
+
+			new Setting(containerEl)
+				.setName('B 站采集目录')
+				.setDesc('B 站英文字幕、纯音频和会话笔记存放的 vault 相对路径。')
+				.addText((text) =>
+					text
+						.setValue(this.plugin.settings.bilibiliFolder)
+						.onChange(async (value) => {
+							this.plugin.settings.bilibiliFolder =
+								value.trim() || DEFAULT_SETTINGS.bilibiliFolder;
 							await this.plugin.saveSettings();
 							await this.plugin.refreshYouTubeReceiver();
 						}),

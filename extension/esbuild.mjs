@@ -13,6 +13,7 @@ await mkdir(outdir, { recursive: true });
 await esbuild.build({
 	entryPoints: {
 		content: path.join(root, 'extension/src/content.ts'),
+		'bilibili-content': path.join(root, 'extension/src/bilibili-content.ts'),
 		background: path.join(root, 'extension/src/background.ts'),
 		popup: path.join(root, 'extension/src/popup.ts'),
 		'page-bridge': path.join(root, 'extension/src/page-bridge.ts'),

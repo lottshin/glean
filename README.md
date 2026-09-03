@@ -9,7 +9,7 @@
 Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 
 - **Obsidian Web Clipper**（[官方](https://obsidian.md/clipper)）：把网页存进 vault，再用 Glean 阅读。
-- **Glean YouTube Capture**：从 YouTube 同步字幕。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
+- **Glean Capture**：从 YouTube 同步字幕，或从 B 站同步英文字幕和纯音频。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
 
 详情在 **设置 → Glean** 顶部；侧边栏麦穗菜单也有「浏览器扩展…」。
 

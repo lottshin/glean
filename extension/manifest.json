@@ -1,8 +1,8 @@
 {
 	"manifest_version": 3,
-	"name": "Glean YouTube Capture",
+	"name": "Glean Capture",
 	"version": "0.0.1",
-	"description": "Capture YouTube captions and sync them to the Glean Obsidian plugin.",
+	"description": "Capture YouTube or Bilibili captions and sync them to the Glean Obsidian plugin.",
 	"icons": {
 		"16": "icons/icon-16.png",
 		"32": "icons/icon-32.png",
@@ -25,6 +25,9 @@
 		"https://youtube.com/*",
 		"https://m.youtube.com/*",
 		"https://youtu.be/*",
+		"https://www.bilibili.com/*",
+		"https://api.bilibili.com/*",
+		"https://aisubtitle.hdslb.com/*",
 		"http://127.0.0.1/*",
 		"http://localhost/*"
 	],
@@ -35,7 +38,12 @@
 	"web_accessible_resources": [
 		{
 			"resources": ["page-bridge.js", "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png"],
-			"matches": ["https://www.youtube.com/*", "https://youtube.com/*", "https://m.youtube.com/*"]
+			"matches": [
+				"https://www.youtube.com/*",
+				"https://youtube.com/*",
+				"https://m.youtube.com/*",
+				"https://www.bilibili.com/*"
+			]
 		}
 	],
 	"content_scripts": [
@@ -46,6 +54,12 @@
 				"https://m.youtube.com/*"
 			],
 			"js": ["content.js"],
+			"css": ["content.css"],
+			"run_at": "document_idle"
+		},
+		{
+			"matches": ["https://www.bilibili.com/video/*"],
+			"js": ["bilibili-content.js"],
 			"css": ["content.css"],
 			"run_at": "document_idle"
 		}

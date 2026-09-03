@@ -64,6 +64,13 @@ export default class GleanPlugin extends Plugin {
 		notePath: string;
 		subtitlePath: string;
 	} | null = null;
+	private lastBilibiliImport: {
+		bvid: string;
+		title: string;
+		notePath: string;
+		subtitlePath: string;
+		audioPath: string;
+	} | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -179,6 +186,27 @@ export default class GleanPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'listen-current-bilibili-note',
+			name: '精听当前 B 站笔记',
+			checkCallback: (checking) => {
+				const session = this.bilibiliSessionFromFile(
+					this.app.workspace.getActiveFile(),
+				);
+				if (!session) {
+					return false;
+				}
+				if (!checking) {
+					void this.openBilibili(
+						session.audioPath,
+						session.subtitlePath,
+						session.title,
+					);
+				}
+				return true;
+			},
+		});
+
+		this.addCommand({
 			id: 'listen-current-file',
 			name: '精听当前文件',
 			checkCallback: (checking) => {
@@ -279,6 +307,7 @@ export default class GleanPlugin extends Plugin {
 					});
 				} else if (file.extension.toLowerCase() === 'md') {
 					const youtube = this.getYouTubeSession(file);
+					const bilibili = this.getBilibiliSession(file);
 					if (youtube) {
 						menu.addItem((item) => {
 							item.setTitle('Glean: 精听')
@@ -288,6 +317,18 @@ export default class GleanPlugin extends Plugin {
 										youtube.videoId,
 										youtube.subtitlePath,
 										youtube.title,
+									);
+								});
+						});
+					} else if (bilibili) {
+						menu.addItem((item) => {
+							item.setTitle('Glean: 精听')
+								.setIcon('headphones')
+								.onClick(() => {
+									void this.openBilibili(
+										bilibili.audioPath,
+										bilibili.subtitlePath,
+										bilibili.title,
 									);
 								});
 						});
@@ -389,6 +430,7 @@ export default class GleanPlugin extends Plugin {
 			port: this.settings.youtubeReceiverPort,
 			token: this.settings.youtubeReceiverToken,
 			folder: this.settings.youtubeFolder,
+			bilibiliFolder: this.settings.bilibiliFolder,
 			onImported: (result: {
 				videoId: string;
 				title: string;
@@ -396,6 +438,16 @@ export default class GleanPlugin extends Plugin {
 				subtitlePath: string;
 			}) => {
 				this.lastYouTubeImport = result;
+				notifyImportSuccess(result.title, result.notePath);
+			},
+			onBilibiliImported: (result: {
+				bvid: string;
+				title: string;
+				notePath: string;
+				subtitlePath: string;
+				audioPath: string;
+			}) => {
+				this.lastBilibiliImport = result;
 				notifyImportSuccess(result.title, result.notePath);
 			},
 		};
@@ -410,8 +462,8 @@ export default class GleanPlugin extends Plugin {
 			this.youtubeReceiver = null;
 			new Notice(
 				error instanceof Error
-					? `YouTube 接收端启动失败：${error.message}`
-					: 'YouTube 接收端启动失败',
+					? `浏览器采集接收端启动失败：${error.message}`
+					: '浏览器采集接收端启动失败',
 			);
 		}
 	}
@@ -737,7 +789,7 @@ export default class GleanPlugin extends Plugin {
 		return view;
 	}
 
-	/** Prefer the active YouTube note, then the latest import, then a local media file. */
+	/** Prefer the active session note, then the latest import, then local media. */
 	private listenStateFromContext(): ListenState | undefined {
 		const session = this.youtubeSessionFromFile(this.app.workspace.getActiveFile());
 		if (session) {
@@ -748,12 +800,29 @@ export default class GleanPlugin extends Plugin {
 				subtitlePath: session.subtitlePath,
 			};
 		}
+		const bilibili = this.bilibiliSessionFromFile(
+			this.app.workspace.getActiveFile(),
+		);
+		if (bilibili) {
+			return {
+				videoPath: bilibili.audioPath,
+				subtitlePath: bilibili.subtitlePath,
+				title: bilibili.title,
+			};
+		}
 		if (this.lastYouTubeImport) {
 			return {
 				kind: 'youtube',
 				videoId: this.lastYouTubeImport.videoId,
 				title: this.lastYouTubeImport.title,
 				subtitlePath: this.lastYouTubeImport.subtitlePath,
+			};
+		}
+		if (this.lastBilibiliImport) {
+			return {
+				videoPath: this.lastBilibiliImport.audioPath,
+				subtitlePath: this.lastBilibiliImport.subtitlePath,
+				title: this.lastBilibiliImport.title,
 			};
 		}
 		const file = this.app.workspace.getActiveFile();
@@ -790,10 +859,14 @@ export default class GleanPlugin extends Plugin {
 		return view;
 	}
 
-	async openVideo(file: TFile, seekTo?: number): Promise<void> {
+	async openVideo(
+		file: TFile,
+		seekTo?: number,
+		subtitlePath: string | null = null,
+	): Promise<void> {
 		const view = await this.activateListenView({
 			videoPath: file.path,
-			subtitlePath: null,
+			subtitlePath,
 			seekTo,
 		});
 		if (!view) {
@@ -801,6 +874,20 @@ export default class GleanPlugin extends Plugin {
 			return;
 		}
 		this.app.workspace.requestSaveLayout();
+	}
+
+	async openBilibili(
+		audioPath: string,
+		subtitlePath: string,
+		_title: string,
+		seekTo?: number,
+	): Promise<void> {
+		const audio = this.app.vault.getAbstractFileByPath(audioPath);
+		if (!(audio instanceof TFile)) {
+			new Notice(`找不到 B 站音频：${audioPath}`);
+			return;
+		}
+		await this.openVideo(audio, seekTo, subtitlePath);
 	}
 
 	async openYouTube(
@@ -831,6 +918,15 @@ export default class GleanPlugin extends Plugin {
 		return this.youtubeSessionFromFile(file);
 	}
 
+	getBilibiliSession(file: TFile | null): {
+		bvid: string;
+		title: string;
+		subtitlePath: string;
+		audioPath: string;
+	} | null {
+		return this.bilibiliSessionFromFile(file);
+	}
+
 	private youtubeSessionFromFile(file: TFile | null): {
 		videoId: string;
 		title: string;
@@ -859,6 +955,45 @@ export default class GleanPlugin extends Plugin {
 		return {
 			videoId,
 			subtitlePath,
+			title:
+				typeof frontmatter.title === 'string'
+					? frontmatter.title
+					: file.basename,
+		};
+	}
+
+	private bilibiliSessionFromFile(file: TFile | null): {
+		bvid: string;
+		title: string;
+		subtitlePath: string;
+		audioPath: string;
+	} | null {
+		if (!file) {
+			return null;
+		}
+		const rawFrontmatter: unknown =
+			this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const frontmatter =
+			rawFrontmatter &&
+			typeof rawFrontmatter === 'object' &&
+			!Array.isArray(rawFrontmatter)
+				? (rawFrontmatter as Record<string, unknown>)
+				: undefined;
+		const bvid = frontmatter?.['glean-video-id'];
+		const subtitlePath = frontmatter?.subtitle;
+		const audioPath = frontmatter?.audio;
+		if (
+			frontmatter?.['glean-kind'] !== 'bilibili' ||
+			typeof bvid !== 'string' ||
+			typeof subtitlePath !== 'string' ||
+			typeof audioPath !== 'string'
+		) {
+			return null;
+		}
+		return {
+			bvid,
+			subtitlePath,
+			audioPath,
 			title:
 				typeof frontmatter.title === 'string'
 					? frontmatter.title
@@ -1003,7 +1138,7 @@ export default class GleanPlugin extends Plugin {
 		this.settings.browserExtensionsHintShown = true;
 		await this.saveSettings();
 		new Notice(
-			'网页文章用官方 Obsidian Web Clipper；YouTube 字幕用 Glean 浏览器扩展。说明在 设置 → Glean。',
+			'网页文章用官方 Obsidian Web Clipper；YouTube / B 站视频用 Glean Capture。说明在 设置 → Glean。',
 			10_000,
 		);
 	}

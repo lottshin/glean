@@ -1,4 +1,9 @@
 import { timedTextToWebVtt, type TimedTextPayload } from '../../src/youtube/vtt';
+import {
+	bilibiliSubtitleToWebVtt,
+	type BilibiliSubtitlePayload,
+	type BilibiliSubtitleTrack,
+} from '../../src/bilibili/subtitle';
 
 interface SyncMessage {
 	type: 'glean-sync';
@@ -16,6 +21,26 @@ interface SegmentMessage {
 	type: 'glean-segment-json3';
 	raw: string;
 	cacheKey?: string;
+}
+
+interface BilibiliVttMessage {
+	type: 'glean-bilibili-vtt';
+	track: BilibiliSubtitleTrack;
+}
+
+interface BilibiliSyncMessage {
+	type: 'glean-sync-bilibili';
+	payload: {
+		bvid: string;
+		page: number;
+		cid: number;
+		title: string;
+		owner: string;
+		url: string;
+		lang: string;
+		vtt: string;
+		audioUrls: string[];
+	};
 }
 
 const SEGMENT_CACHE_PREFIX = 'glean-seg:v4';
@@ -47,8 +72,55 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 			);
 		return true;
 	}
+	if (type === 'glean-bilibili-vtt') {
+		void fetchBilibiliVtt(message as BilibiliVttMessage)
+			.then((result) => sendResponse(result))
+			.catch((error: unknown) =>
+				sendResponse({
+					ok: false,
+					error:
+						error instanceof Error ? error.message : 'B 站字幕下载失败',
+				}),
+			);
+		return true;
+	}
+	if (type === 'glean-sync-bilibili') {
+		void syncBilibiliToObsidian(message as BilibiliSyncMessage)
+			.then((result) => sendResponse(result))
+			.catch((error: unknown) =>
+				sendResponse({
+					ok: false,
+					error: error instanceof Error ? error.message : '同步失败',
+				}),
+			);
+		return true;
+	}
 	return false;
 });
+
+async function fetchBilibiliVtt(
+	message: BilibiliVttMessage,
+): Promise<{ ok: boolean; vtt?: string; error?: string }> {
+	const url = message.track?.subtitleUrl;
+	if (!url) {
+		return { ok: false, error: '字幕地址为空' };
+	}
+	const response = await fetch(url, { credentials: 'include' });
+	if (!response.ok) {
+		return {
+			ok: false,
+			error: `B 站字幕下载失败（HTTP ${response.status}）`,
+		};
+	}
+	const payload = (await response.json()) as BilibiliSubtitlePayload;
+	// Bilibili already supplies sentence-level cue boundaries. Keep those exact
+	// timings instead of applying YouTube's ASR-specific resegmentation.
+	const vtt = bilibiliSubtitleToWebVtt(payload);
+	if (!vtt.includes('-->')) {
+		return { ok: false, error: 'B 站字幕为空' };
+	}
+	return { ok: true, vtt };
+}
 
 async function segmentJson3(
 	message: SegmentMessage,
@@ -93,6 +165,19 @@ async function segmentJson3(
 }
 
 async function syncToObsidian(message: SyncMessage): Promise<{ ok: boolean; error?: string }> {
+	return postToObsidian('/glean/import', message.payload);
+}
+
+async function syncBilibiliToObsidian(
+	message: BilibiliSyncMessage,
+): Promise<{ ok: boolean; error?: string }> {
+	return postToObsidian('/glean/import/bilibili', message.payload);
+}
+
+async function postToObsidian(
+	path: string,
+	payload: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
 	const stored = await chrome.storage.sync.get({
 		port: 17865,
 		token: '',
@@ -103,7 +188,7 @@ async function syncToObsidian(message: SyncMessage): Promise<{ ok: boolean; erro
 		return { ok: false, error: '未配置 token' };
 	}
 
-	const endpoint = `http://127.0.0.1:${port}/glean/import`;
+	const endpoint = `http://127.0.0.1:${port}${path}`;
 	let response: Response;
 	try {
 		response = await fetch(endpoint, {
@@ -113,7 +198,7 @@ async function syncToObsidian(message: SyncMessage): Promise<{ ok: boolean; erro
 			},
 			body: JSON.stringify({
 				token,
-				...message.payload,
+				...payload,
 			}),
 		});
 	} catch {

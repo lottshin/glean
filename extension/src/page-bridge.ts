@@ -4,11 +4,17 @@ import {
 	prepareTimedTextUrl,
 	type CaptionTrack,
 } from './capture';
+import {
+	audioTracksFromPlayInfo,
+	pickSpeechAudioTrack,
+} from '../../src/bilibili/playurl';
 
 const REQUEST_CAPTURE = 'glean-request-capture';
 const RESPONSE_CAPTURE = 'glean-capture-response';
 const REQUEST_TIMEDTEXT = 'glean-request-timedtext';
 const RESPONSE_TIMEDTEXT = 'glean-timedtext-response';
+const REQUEST_BILIBILI_AUDIO = 'glean-request-bilibili-audio';
+const RESPONSE_BILIBILI_AUDIO = 'glean-bilibili-audio-response';
 const INSTALLED_KEY = '__gleanPageBridgeInstalled';
 const CACHE_KEY = '__gleanTimedTextCache';
 
@@ -351,5 +357,26 @@ if (!pageWindow[INSTALLED_KEY]) {
 					}),
 				);
 			});
+	});
+
+	document.addEventListener(REQUEST_BILIBILI_AUDIO, (event) => {
+		const requestId =
+			event instanceof CustomEvent && typeof event.detail === 'string'
+				? event.detail
+				: '';
+		if (!requestId) {
+			return;
+		}
+		const playInfo = pageWindow.__playinfo__;
+		const track = pickSpeechAudioTrack(audioTracksFromPlayInfo(playInfo));
+		document.dispatchEvent(
+			new CustomEvent(RESPONSE_BILIBILI_AUDIO, {
+				detail: JSON.stringify({
+					requestId,
+					track,
+					error: track ? undefined : '页面还没有加载出音频轨',
+				}),
+			}),
+		);
 	});
 }

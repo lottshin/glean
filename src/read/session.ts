@@ -487,6 +487,18 @@ export class ReadingMode {
 			button.addClass(ACTION_CLASS);
 			return;
 		}
+		const bilibili = this.plugin.getBilibiliSession(file);
+		if (bilibili) {
+			const button = view.addAction(READ_ICON, 'Glean 精听', () => {
+				void this.plugin.openBilibili(
+					bilibili.audioPath,
+					bilibili.subtitlePath,
+					bilibili.title,
+				);
+			});
+			button.addClass(ACTION_CLASS);
+			return;
+		}
 
 		if (!this.canEnable(file)) {
 			return;

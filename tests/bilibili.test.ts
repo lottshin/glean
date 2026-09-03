@@ -175,6 +175,7 @@ describe('subtitle body conversion', () => {
 	it('emits VTT with the original timings', () => {
 		const vtt = bilibiliSubtitleToWebVtt(payload);
 		expect(vtt.startsWith('WEBVTT')).toBe(true);
+		expect(vtt).toContain('NOTE glean-segmented');
 		expect(vtt).toContain('00:00:01.500 --> 00:00:03.250');
 		expect(vtt).toContain('Hello there');
 		expect(vtt).toContain('general Kenobi');
