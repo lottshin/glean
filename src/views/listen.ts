@@ -112,6 +112,7 @@ export class ListenView extends ItemView {
 	private sentenceArmed = false;
 	private sentenceStart = 0;
 	private sentenceEnd = 0;
+	private sentenceStopTimer: number | null = null;
 	private pendingSeek: number | null = null;
 	private mode: GleanViewMode = 'listen';
 	/** In dictation mode: whether the original sentence is hidden. */
@@ -158,6 +159,25 @@ export class ListenView extends ItemView {
 
 	getIcon(): string {
 		return 'headphones';
+	}
+
+	/** No media loaded yet, so this tab can take any without losing anything. */
+	isVacant(): boolean {
+		return !this.currentVideo && !this.currentYouTube;
+	}
+
+	/** Whether this tab already holds the media a request is asking for. */
+	holdsMedia(state: ListenState): boolean {
+		if (state.kind === 'youtube' || state.videoId) {
+			return !!state.videoId && this.currentYouTube?.videoId === state.videoId;
+		}
+		return !!state.videoPath && this.currentVideo?.path === state.videoPath;
+	}
+
+	/** Stop playback without touching the rest of the view's state. */
+	pausePlayback(): void {
+		this.exitSentenceMode();
+		this.source.pause();
 	}
 
 	async onOpen(): Promise<void> {
@@ -393,8 +413,18 @@ export class ListenView extends ItemView {
 		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
 		this.unsubs.push(
 			this.source.onTimeUpdate((time) => this.onTick(time)),
-			this.source.onPlay(() => this.syncPlayButton()),
-			this.source.onPause(() => this.syncPlayButton()),
+			// A booked stop is only valid while the clock is running: hold it
+			// across a pause, then re-book against the time we resume from.
+			this.source.onPlay(() => {
+				this.syncPlayButton();
+				if (this.sentenceArmed) {
+					this.scheduleSentenceStop();
+				}
+			}),
+			this.source.onPause(() => {
+				this.syncPlayButton();
+				this.clearSentenceStop();
+			}),
 			this.source.onError((message) => this.setStatus(message)),
 		);
 	}
@@ -525,8 +555,7 @@ export class ListenView extends ItemView {
 		this.ensureSource('local');
 
 		this.closeWordLookup();
-		this.sentenceMode = false;
-		this.sentenceArmed = false;
+		this.exitSentenceMode();
 		this.source.pause();
 		this.setStatus('正在加载…');
 
@@ -558,8 +587,7 @@ export class ListenView extends ItemView {
 		this.currentSubtitle = subtitle;
 		this.cues = cues;
 		this.activeIndex = -1;
-		this.sentenceMode = false;
-		this.sentenceArmed = false;
+		this.exitSentenceMode();
 		this.clearAdvanceTimer();
 		this.syncMediaChrome();
 		this.syncModeChrome();
@@ -605,8 +633,7 @@ export class ListenView extends ItemView {
 		}
 
 		this.closeWordLookup();
-		this.sentenceMode = false;
-		this.sentenceArmed = false;
+		this.exitSentenceMode();
 		this.ensureSource('youtube');
 		this.source.pause();
 		this.setStatus('正在连接 YouTube…');
@@ -1048,17 +1075,14 @@ export class ListenView extends ItemView {
 		this.updateTime(t);
 		if (this.sentenceMode) {
 			if (!this.sentenceArmed) {
-				if (t >= this.sentenceStart - 0.05 && t < this.sentenceEnd - 0.05) {
+				if (t >= this.sentenceStart - 0.05 && t < this.sentenceEnd) {
 					this.sentenceArmed = true;
-				}
-			} else if (t >= this.sentenceEnd - 0.05) {
-				this.sentenceMode = false;
-				this.sentenceArmed = false;
-				this.source.pause();
-				if (this.mode === 'dictation') {
-					this.focusDictInput();
+				} else {
+					// Still waiting for the seek to land; the clock is not ours yet.
+					return;
 				}
 			}
+			this.scheduleSentenceStop();
 			return;
 		}
 
@@ -1126,11 +1150,7 @@ export class ListenView extends ItemView {
 			return;
 		}
 
-		const hideHint = this.currentYouTube
-			? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
-			: this.hidden
-				? '原句已隐藏 · H 显示'
-				: '原句可见 · H 隐藏';
+		const hideHint = this.dictHideHint();
 		this.dictHintEl.setText(
 			`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 		);
@@ -1305,11 +1325,7 @@ export class ListenView extends ItemView {
 				this.dictHintEl.setText('匹配完成');
 				this.dictHintEl.addClass('is-done');
 			} else if (cue) {
-				const hideHint = this.currentYouTube
-					? 'YouTube 画面无法遮挡 · 文本原句已隐藏'
-					: this.hidden
-						? '原句已隐藏 · H 显示'
-						: '原句可见 · H 隐藏';
+				const hideHint = this.dictHideHint();
 				this.dictHintEl.setText(
 					`${formatTimestamp(cue.start)} · ${this.activeIndex + 1}/${this.cues.length} · ${hideHint}`,
 				);
@@ -1323,6 +1339,14 @@ export class ListenView extends ItemView {
 		this.hideBtn?.setText(this.hidden ? '显示原句' : '隐藏原句');
 	}
 
+	/**
+	 * Status line for dictation. Both callers read from here so the wording
+	 * cannot drift apart from the behaviour again.
+	 */
+	private dictHideHint(): string {
+		return this.hidden ? '原句已隐藏 · H 显示' : '原句可见 · H 隐藏';
+	}
+
 	private focusDictInput(): void {
 		if (this.mode !== 'dictation') {
 			return;
@@ -1330,6 +1354,67 @@ export class ListenView extends ItemView {
 		window.setTimeout(() => {
 			this.inputEl?.focus({ preventScroll: true });
 		}, 0);
+	}
+
+	/** Leave single-sentence playback, dropping any pause we had booked. */
+	private exitSentenceMode(): void {
+		this.sentenceMode = false;
+		this.sentenceArmed = false;
+		this.clearSentenceStop();
+	}
+
+	private clearSentenceStop(): void {
+		if (this.sentenceStopTimer !== null) {
+			window.clearTimeout(this.sentenceStopTimer);
+			this.sentenceStopTimer = null;
+		}
+	}
+
+	/**
+	 * Book the pause for the moment the sentence ends, instead of waiting to be
+	 * told we passed it. The time signal only arrives every 250ms on YouTube, so
+	 * stopping on a tick overruns the end by up to that much — long enough to
+	 * play the first word of the next sentence.
+	 *
+	 * Called again on every tick: seeking, buffering and rate changes all move
+	 * the target, and re-booking from a fresh clock keeps drift from adding up.
+	 */
+	private scheduleSentenceStop(remainingOverride?: number): void {
+		this.clearSentenceStop();
+		if (!this.sentenceMode) {
+			return;
+		}
+		const rate = this.source.getPlaybackRate() || 1;
+		const remaining =
+			remainingOverride ?? (this.sentenceEnd - this.source.getCurrentTime()) / rate;
+		if (remaining <= 0) {
+			this.finishSentence();
+			return;
+		}
+		this.sentenceStopTimer = window.setTimeout(() => {
+			this.sentenceStopTimer = null;
+			this.finishSentence();
+		}, remaining * 1000);
+	}
+
+	private finishSentence(): void {
+		if (!this.sentenceMode) {
+			return;
+		}
+		// A seek that had to buffer leaves the clock behind the booking. Cutting
+		// the sentence short here would be worse than the overrun we are fixing,
+		// so re-book against where playback actually is.
+		const rate = this.source.getPlaybackRate() || 1;
+		const remaining = (this.sentenceEnd - this.source.getCurrentTime()) / rate;
+		if (remaining > 0.05) {
+			this.scheduleSentenceStop(remaining);
+			return;
+		}
+		this.exitSentenceMode();
+		this.source.pause();
+		if (this.mode === 'dictation') {
+			this.focusDictInput();
+		}
 	}
 
 	private clearAdvanceTimer(): void {
@@ -1373,6 +1458,11 @@ export class ListenView extends ItemView {
 		this.source.seekTo(cue.start);
 		this.source.play();
 		this.setActive(cue.index);
+		// Book from the seek target rather than the clock: until the seek lands,
+		// getCurrentTime() still reports where we came from. Ticks correct this
+		// once playback is really inside the sentence.
+		const rate = this.source.getPlaybackRate() || 1;
+		this.scheduleSentenceStop((cue.end - cue.start) / rate);
 	}
 
 	private splitCueBefore(index: number, wordIndex: number): Promise<void> {
@@ -1441,8 +1531,7 @@ export class ListenView extends ItemView {
 	private togglePlayback(): void {
 		if (this.mode === 'dictation') {
 			if (this.source.isPlaying()) {
-				this.sentenceMode = false;
-				this.sentenceArmed = false;
+				this.exitSentenceMode();
 				this.source.pause();
 				this.focusDictInput();
 				return;
@@ -1450,8 +1539,7 @@ export class ListenView extends ItemView {
 			this.replayCurrent();
 			return;
 		}
-		this.sentenceMode = false;
-		this.sentenceArmed = false;
+		this.exitSentenceMode();
 		this.source.toggle();
 	}
 
@@ -1546,6 +1634,7 @@ export class ListenView extends ItemView {
 
 	private teardown(): void {
 		this.clearAdvanceTimer();
+		this.clearSentenceStop();
 		this.clearLookupOpenTimer();
 		this.wordPopover.destroy();
 		for (const u of this.unsubs) {

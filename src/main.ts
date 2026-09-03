@@ -6,6 +6,7 @@ import {
 	Plugin,
 	TFile,
 	requestUrl,
+	type WorkspaceLeaf,
 } from 'obsidian';
 import { bundledDictionary } from 'glean:dictionary-package';
 import { DictionaryService, type DictionaryLookup } from './dictionary';
@@ -26,6 +27,7 @@ import {
 	type SaveWordResult,
 } from './lexicon/store';
 import { DEFAULT_SETTINGS, GleanSettingTab, type GleanSettings } from './settings';
+import { clearMediaChrome, registerMediaChrome } from './media/media-chrome';
 import { MEDIA_EXTENSIONS } from './media/types';
 import { LISTEN_VIEW_TYPE, ListenView, type ListenState } from './views/listen';
 import { READ_ICON, ReadingMode } from './read/session';
@@ -300,6 +302,22 @@ export default class GleanPlugin extends Plugin {
 		});
 
 		registerWordNoteChrome(this);
+		registerMediaChrome(this);
+
+		// Moving to another listening tab silences the one left behind. Leaving
+		// for a note does not: that is a glance, not a switch of material.
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', (leaf) => {
+				if (!leaf || !(leaf.view instanceof ListenView)) {
+					return;
+				}
+				for (const other of this.app.workspace.getLeavesOfType(LISTEN_VIEW_TYPE)) {
+					if (other !== leaf && other.view instanceof ListenView) {
+						other.view.pausePlayback();
+					}
+				}
+			}),
+		);
 
 		this.addSettingTab(new GleanSettingTab(this.app, this));
 		this.app.workspace.onLayoutReady(() => {
@@ -308,6 +326,7 @@ export default class GleanPlugin extends Plugin {
 	}
 
 	onunload() {
+		clearMediaChrome(this);
 		this.reading?.destroy();
 		void this.youtubeReceiver?.stop();
 		this.youtubeReceiver = null;
@@ -671,9 +690,26 @@ export default class GleanPlugin extends Plugin {
 	async activateListenView(state?: ListenState): Promise<ListenView | null> {
 		const resolved = state ?? this.listenStateFromContext();
 		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(LISTEN_VIEW_TYPE)[0];
+		const leaves = workspace.getLeavesOfType(LISTEN_VIEW_TYPE);
+		const listenViewOf = (leaf: WorkspaceLeaf): ListenView | null =>
+			leaf.view instanceof ListenView ? leaf.view : null;
+		// Each piece of media gets its own tab, so jumping back from a word card
+		// lands in the tab holding that video instead of evicting whatever the
+		// user is currently studying. An untouched tab is fair game to fill.
+		let leaf =
+			(resolved
+				? leaves.find((candidate) => listenViewOf(candidate)?.holdsMedia(resolved))
+				: leaves[0]) ??
+			leaves.find((candidate) => listenViewOf(candidate)?.isVacant()) ??
+			null;
 		if (!leaf) {
 			leaf = workspace.getLeaf('tab');
+		}
+		// Two sentences playing at once is never what was wanted.
+		for (const other of leaves) {
+			if (other !== leaf) {
+				listenViewOf(other)?.pausePlayback();
+			}
 		}
 		await leaf.setViewState({
 			type: LISTEN_VIEW_TYPE,

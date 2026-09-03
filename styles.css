@@ -198,7 +198,10 @@ button.glean-btn.glean-btn-primary:disabled {
 	border: 0;
 }
 
-/* 听写模式遮挡画面，防止烧录字幕泄题；声音仍由 video 播放 */
+/* 听写模式遮挡画面，防止烧录字幕泄题；声音仍由播放器发出。
+   注意 YouTube：其 Required Minimum Functionality 的 Overlays and frames
+   一节禁止在嵌入播放器上覆盖视觉元素。这里是知情后的取舍——听写时看见
+   烧录字幕等于看答案，遮罩只在听写模式存在，退出即消失。 */
 .glean-video-veil {
 	display: none;
 	position: absolute;
@@ -215,7 +218,7 @@ button.glean-btn.glean-btn-primary:disabled {
 	pointer-events: none;
 }
 
-.glean-listen.is-dictation.has-media:not(.is-audio):not(.is-youtube) .glean-video-veil {
+.glean-listen.is-dictation.has-media:not(.is-audio) .glean-video-veil {
 	display: flex;
 }
 
