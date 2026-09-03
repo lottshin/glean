@@ -8,6 +8,7 @@ import {
 } from '../src/bilibili/id';
 import {
 	bilibiliSubtitleToWebVtt,
+	bilibiliSyncRefusalMessage,
 	cuesFromBilibiliSubtitle,
 	isEnglishLanguage,
 	normalizeSubtitleUrl,
@@ -159,6 +160,27 @@ describe('subtitle track list', () => {
 		expect(translatedEnglishTracks(chineseVlog).map((t) => t.lan)).toEqual([
 			'ai-en',
 		]);
+	});
+
+	it('names Chinese audio when English is translated from it', () => {
+		expect(bilibiliSyncRefusalMessage(chineseVlog)).toBe(
+			'原声是中文，英文字幕是机翻的，跟读音对不上',
+		);
+	});
+
+	it('does not claim Chinese audio when a real English track exists', () => {
+		const tedEd = parseSubtitleTracks({
+			data: {
+				subtitle: {
+					subtitles: [
+						{ lan: 'zh', lan_doc: '中文', ai_type: 0, subtitle_url: '//x/zh.json' },
+						{ lan: 'en', lan_doc: 'English', ai_type: 0, subtitle_url: '//x/en.json' },
+						{ lan: 'ai-zh', lan_doc: '中文', ai_type: 1, subtitle_url: '//x/aizh.json' },
+					],
+				},
+			},
+		});
+		expect(bilibiliSyncRefusalMessage(tedEd)).toBe('');
 	});
 
 	/**

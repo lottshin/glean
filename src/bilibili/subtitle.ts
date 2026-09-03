@@ -91,6 +91,19 @@ export function isEnglishLanguage(lan: string): boolean {
 	return /^en(?:[-_]|$)/.test(baseLanguage(lan));
 }
 
+export function isChineseLanguage(lan: string): boolean {
+	return /^zh(?:[-_]|$)/.test(baseLanguage(lan));
+}
+
+/** Chinese tracks that are not machine-translated out of another language. */
+export function chineseSourceTracks(
+	tracks: BilibiliSubtitleTrack[],
+): BilibiliSubtitleTrack[] {
+	return tracks.filter(
+		(track) => isChineseLanguage(track.lan) && !track.isTranslation,
+	);
+}
+
 /**
  * English tracks Bilibili did not machine-translate.
  *
@@ -114,6 +127,30 @@ export function translatedEnglishTracks(
 	return tracks.filter(
 		(track) => isEnglishLanguage(track.lan) && track.isTranslation,
 	);
+}
+
+/** User-facing reason when a Bilibili video cannot be synced for listening. */
+export function bilibiliSyncRefusalMessage(
+	tracks: BilibiliSubtitleTrack[],
+): string {
+	if (usableEnglishTracks(tracks).length > 0) {
+		return '';
+	}
+
+	const machineEnglish = translatedEnglishTracks(tracks);
+	const chineseSource = chineseSourceTracks(tracks);
+
+	if (machineEnglish.length > 0 && chineseSource.length > 0) {
+		const label = chineseSource[0]?.lanDoc || '中文';
+		return `原声是${label}，英文字幕是机翻的，跟读音对不上`;
+	}
+	if (machineEnglish.length > 0) {
+		return '英文字幕是机翻的，跟读音对不上';
+	}
+	if (chineseSource.length > 0) {
+		return '没有英文字幕轨（检测到原声可能是中文）';
+	}
+	return '该视频没有英文字幕轨；自动生成将在后续支持';
 }
 
 /** Prefer a human English track, then AI English, then any human track. */
