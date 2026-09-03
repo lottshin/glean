@@ -5,16 +5,16 @@ import {
 	type CaptionTrack,
 } from './capture';
 import {
-	audioTracksFromPlayInfo,
-	pickSpeechAudioTrack,
+	mediaTrackFromPlayUrl,
+	type BilibiliMediaTrack,
 } from '../../src/bilibili/playurl';
 
 const REQUEST_CAPTURE = 'glean-request-capture';
 const RESPONSE_CAPTURE = 'glean-capture-response';
 const REQUEST_TIMEDTEXT = 'glean-request-timedtext';
 const RESPONSE_TIMEDTEXT = 'glean-timedtext-response';
-const REQUEST_BILIBILI_AUDIO = 'glean-request-bilibili-audio';
-const RESPONSE_BILIBILI_AUDIO = 'glean-bilibili-audio-response';
+const REQUEST_BILIBILI_MEDIA = 'glean-request-bilibili-media';
+const RESPONSE_BILIBILI_MEDIA = 'glean-bilibili-media-response';
 const INSTALLED_KEY = '__gleanPageBridgeInstalled';
 const CACHE_KEY = '__gleanTimedTextCache';
 
@@ -26,6 +26,49 @@ interface TimedTextCacheEntry {
 }
 
 const pageWindow = window as unknown as Record<string, unknown>;
+
+/**
+ * `fnval=1` returns a single MP4 with audio already muxed in, which a plain
+ * <video> can stream. The DASH response the page itself uses would hand back
+ * separate video and audio streams that Obsidian would have to remux.
+ *
+ * Runs in the page world so the request carries the user's login cookies.
+ */
+async function fetchMuxedMp4(
+	bvid: string,
+	cid: number,
+	qn: number,
+): Promise<BilibiliMediaTrack> {
+	const params = new URLSearchParams({
+		bvid,
+		cid: String(cid),
+		qn: String(qn),
+		fnval: '1',
+		fnver: '0',
+		fourk: '0',
+	});
+	const response = await fetch(
+		`https://api.bilibili.com/x/player/playurl?${params.toString()}`,
+		{ credentials: 'include' },
+	);
+	if (!response.ok) {
+		throw new Error(`播放地址接口返回 ${response.status}`);
+	}
+	const body: unknown = await response.json();
+	const envelope = body as { code?: unknown; message?: unknown } | null;
+	if (envelope?.code !== 0) {
+		throw new Error(
+			typeof envelope?.message === 'string' && envelope.message
+				? envelope.message
+				: '播放地址接口返回异常',
+		);
+	}
+	const track = mediaTrackFromPlayUrl(body);
+	if (!track) {
+		throw new Error('该视频被切成多段，暂不支持在线精听');
+	}
+	return track;
+}
 
 function getCache(): TimedTextCacheEntry[] {
 	const existing = pageWindow[CACHE_KEY];
@@ -359,24 +402,42 @@ if (!pageWindow[INSTALLED_KEY]) {
 			});
 	});
 
-	document.addEventListener(REQUEST_BILIBILI_AUDIO, (event) => {
+	document.addEventListener(REQUEST_BILIBILI_MEDIA, (event) => {
+		if (!(event instanceof CustomEvent) || typeof event.detail !== 'string') {
+			return;
+		}
+		let request: { requestId?: unknown; bvid?: unknown; cid?: unknown; qn?: unknown };
+		try {
+			request = JSON.parse(event.detail) as typeof request;
+		} catch {
+			return;
+		}
 		const requestId =
-			event instanceof CustomEvent && typeof event.detail === 'string'
-				? event.detail
-				: '';
+			typeof request.requestId === 'string' ? request.requestId : '';
 		if (!requestId) {
 			return;
 		}
-		const playInfo = pageWindow.__playinfo__;
-		const track = pickSpeechAudioTrack(audioTracksFromPlayInfo(playInfo));
-		document.dispatchEvent(
-			new CustomEvent(RESPONSE_BILIBILI_AUDIO, {
-				detail: JSON.stringify({
-					requestId,
-					track,
-					error: track ? undefined : '页面还没有加载出音频轨',
+		const respond = (detail: Record<string, unknown>) => {
+			document.dispatchEvent(
+				new CustomEvent(RESPONSE_BILIBILI_MEDIA, {
+					detail: JSON.stringify({ requestId, ...detail }),
 				}),
-			}),
-		);
+			);
+		};
+		if (typeof request.bvid !== 'string' || typeof request.cid !== 'number') {
+			respond({ error: '缺少视频标识' });
+			return;
+		}
+		void fetchMuxedMp4(
+			request.bvid,
+			request.cid,
+			typeof request.qn === 'number' ? request.qn : 64,
+		)
+			.then((track) => respond({ track }))
+			.catch((error: unknown) =>
+				respond({
+					error: error instanceof Error ? error.message : '读取播放地址失败',
+				}),
+			);
 	});
 }

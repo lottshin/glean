@@ -39,7 +39,10 @@ interface BilibiliSyncMessage {
 		url: string;
 		lang: string;
 		vtt: string;
-		audioUrls: string[];
+		mediaUrls: string[];
+		mediaSize: number;
+		mediaQuality: string;
+		mediaExpiresAt: number | null;
 	};
 }
 

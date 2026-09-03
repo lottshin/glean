@@ -1,6 +1,6 @@
 # Glean Capture（浏览器扩展）
 
-桌面 Chrome / Edge 扩展：在 YouTube 页面读取已有字幕，或在 B 站页面读取英文字幕和纯音频，POST 到本机 Obsidian 里的 Glean 接收端，写成 vault 文件。
+桌面 Chrome / Edge 扩展：在 YouTube 页面读取已有字幕，或在 B 站页面读取英文字幕和播放地址，POST 到本机 Obsidian 里的 Glean 接收端，写成 vault 文件。
 
 ## 开发
 
@@ -19,5 +19,5 @@ npm run extension:build
 
 ## 说明
 
-- YouTube 只采集字幕；B 站会同时下载最低码率的纯音频，以便在 Obsidian 内精确跳句和停句。
+- YouTube 只采集字幕；B 站额外取一条 720P 的单文件 MP4 地址（`fnval=1`，音视频已合流），Obsidian 直接用 `<video>` 流式播放，因此不写入任何媒体文件。地址由 CDN 签名，约两小时后失效。
 - 需要桌面端 Obsidian 正在运行；iPad / 手机通过 Obsidian Sync 使用同步后的字幕与会话笔记。

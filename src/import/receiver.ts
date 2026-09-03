@@ -9,7 +9,6 @@ import {
 import { loadNodeModule } from '../node-bridge';
 import { parseSubtitles } from '../media/srt';
 import {
-	bilibiliAudioPath,
 	bilibiliNotePath,
 	bilibiliSubtitlePath,
 	buildBilibiliSessionNote,
@@ -32,7 +31,6 @@ export interface YouTubeReceiverOptions {
 	token: string;
 	folder: string;
 	bilibiliFolder?: string;
-	downloadBilibiliAudio?: (urls: string[]) => Promise<ArrayBuffer>;
 	onImported?: (result: {
 		videoId: string;
 		title: string;
@@ -44,7 +42,9 @@ export interface YouTubeReceiverOptions {
 		title: string;
 		notePath: string;
 		subtitlePath: string;
-		audioPath: string;
+		mediaUrl: string;
+		mediaSize: number;
+		mediaExpiresAt: number | null;
 	}) => void;
 }
 
@@ -116,6 +116,14 @@ export class YouTubeImportReceiver {
 			return;
 		}
 
+		if (
+			(req.method === 'GET' || req.method === 'HEAD') &&
+			url.pathname === BILIBILI_PROXY_PATH
+		) {
+			this.proxyBilibiliMedia(req, res, url);
+			return;
+		}
+
 		const isYouTubeImport =
 			req.method === 'POST' && url.pathname === '/glean/import';
 		const isBilibiliImport =
@@ -169,12 +177,85 @@ export class YouTubeImportReceiver {
 		}
 	}
 
+	/**
+	 * Streams a Bilibili CDN file through this local server.
+	 *
+	 * The CDN answers 403 unless the request carries both a `Referer` of
+	 * bilibili.com and a browser `User-Agent`, and it also rejects anything with
+	 * an `Origin` header. A browser cannot forge the first two nor suppress the
+	 * third, so `<video>` can only reach the file via this hop.
+	 */
+	private proxyBilibiliMedia(
+		req: IncomingMessage,
+		res: ServerResponse,
+		url: URL,
+	): void {
+		if (url.searchParams.get('token') !== this.options.token) {
+			json(res, 401, { ok: false, error: 'token 无效' });
+			return;
+		}
+		const target = url.searchParams.get('url') ?? '';
+		if (!isBilibiliMediaUrl(target)) {
+			json(res, 400, { ok: false, error: '只允许 B 站媒体地址' });
+			return;
+		}
+
+		const https = loadNodeModule<typeof import('https')>('https');
+		const headers: Record<string, string> = {
+			Referer: 'https://www.bilibili.com/',
+			'User-Agent': BILIBILI_USER_AGENT,
+			Accept: '*/*',
+		};
+		// Forwarding Range is what makes seeking work instead of refetching.
+		if (typeof req.headers.range === 'string') {
+			headers.Range = req.headers.range;
+		}
+
+		const upstream = https.request(
+			target,
+			{ method: req.method === 'HEAD' ? 'HEAD' : 'GET', headers },
+			(source) => {
+				const passthrough: Record<string, string> = {};
+				for (const name of [
+					'content-type',
+					'content-length',
+					'content-range',
+					'accept-ranges',
+					'cache-control',
+				]) {
+					const value = source.headers[name];
+					if (typeof value === 'string') {
+						passthrough[name] = value;
+					}
+				}
+				res.writeHead(source.statusCode ?? 502, passthrough);
+				source.pipe(res);
+			},
+		);
+		upstream.on('error', () => {
+			if (!res.headersSent) {
+				json(res, 502, { ok: false, error: 'B 站媒体拉取失败' });
+			} else {
+				res.destroy();
+			}
+		});
+		// Abandon the upstream fetch when the player seeks away or closes.
+		req.on('close', () => upstream.destroy());
+		upstream.end();
+	}
+
+	/**
+	 * Writes captions and the note only. The picture streams from B 站 CDN, so a
+	 * sync stays instant and costs no vault space.
+	 */
 	private async importBilibiliPayload(payload: BilibiliImportPayload): Promise<{
 		bvid: string;
 		title: string;
 		notePath: string;
 		subtitlePath: string;
-		audioPath: string;
+		mediaUrl: string;
+		mediaSize: number;
+		mediaExpiresAt: number | null;
 	}> {
 		const folder = normalizePath(
 			this.options.bilibiliFolder?.trim() || 'Glean/Bilibili',
@@ -188,22 +269,15 @@ export class YouTubeImportReceiver {
 		const subtitlePath = normalizePath(
 			bilibiliSubtitlePath(folder, payload.bvid, payload.page, payload.lang),
 		);
-		const audioPath = normalizePath(
-			bilibiliAudioPath(folder, payload.bvid, payload.page),
-		);
 		const notePath = normalizePath(
 			bilibiliNotePath(folder, payload.title, payload.bvid, payload.page),
 		);
-
-		const audio = this.options.downloadBilibiliAudio
-			? await this.options.downloadBilibiliAudio(payload.audioUrls)
-			: await downloadBilibiliAudio(payload.audioUrls);
-		if (audio.byteLength === 0) {
-			throw new Error('B 站音频为空');
+		const mediaUrl = payload.mediaUrls[0];
+		if (!mediaUrl) {
+			throw new Error('缺少可用的 B 站媒体地址');
 		}
 
 		await writeTextFile(this.app, subtitlePath, payload.vtt);
-		await writeBinaryFile(this.app, audioPath, audio);
 		await writeTextFile(
 			this.app,
 			notePath,
@@ -216,7 +290,10 @@ export class YouTubeImportReceiver {
 				url: payload.url,
 				lang: payload.lang,
 				subtitlePath,
-				audioPath,
+				mediaUrl,
+				mediaSize: payload.mediaSize,
+				mediaQuality: payload.mediaQuality,
+				mediaExpiresAt: payload.mediaExpiresAt,
 			}),
 		);
 		return {
@@ -224,7 +301,9 @@ export class YouTubeImportReceiver {
 			title: payload.title,
 			notePath,
 			subtitlePath,
-			audioPath,
+			mediaUrl,
+			mediaSize: payload.mediaSize,
+			mediaExpiresAt: payload.mediaExpiresAt,
 		};
 	}
 
@@ -359,7 +438,7 @@ async function writeTextFile(app: App, path: string, content: string): Promise<v
 	await app.vault.create(path, content);
 }
 
-async function writeBinaryFile(
+export async function writeBinaryFile(
 	app: App,
 	path: string,
 	content: ArrayBuffer,
@@ -375,7 +454,39 @@ async function writeBinaryFile(
 	await app.vault.createBinary(path, content);
 }
 
-async function downloadBilibiliAudio(urls: string[]): Promise<ArrayBuffer> {
+export const BILIBILI_PROXY_PATH = '/glean/bilibili-media';
+
+const BILIBILI_USER_AGENT =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+/** Guards the proxy against being pointed at arbitrary hosts. */
+export function isBilibiliMediaUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		const host = url.hostname.toLowerCase();
+		return (
+			url.protocol === 'https:' &&
+			(host.endsWith('.bilivideo.com') || host.endsWith('.bilivideo.cn'))
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** The local URL a `<video>` can actually load. */
+export function bilibiliProxyUrl(
+	port: number,
+	token: string,
+	mediaUrl: string,
+): string {
+	const params = new URLSearchParams({ token, url: mediaUrl });
+	return `http://127.0.0.1:${port}${BILIBILI_PROXY_PATH}?${params.toString()}`;
+}
+
+/** Used by the "save a local copy" action, not by the sync itself. */
+export async function downloadBilibiliMedia(
+	urls: string[],
+): Promise<ArrayBuffer> {
 	const errors: string[] = [];
 	for (const url of urls) {
 		try {
@@ -398,7 +509,7 @@ async function downloadBilibiliAudio(urls: string[]): Promise<ArrayBuffer> {
 		}
 	}
 	throw new Error(
-		`B 站音频下载失败（${errors.join('；') || '所有地址均已失效'}）`,
+		`B 站媒体下载失败（${errors.join('；') || '所有地址均已失效'}）`,
 	);
 }
 

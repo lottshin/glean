@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { App } from 'obsidian';
 import { YouTubeImportReceiver } from '../src/import/receiver';
 
+const MEDIA_URL =
+	'https://upos-sz-mirrorcos.bilivideo.com/v.mp4?deadline=1788433957';
+
 describe('Bilibili import receiver', () => {
-	it('downloads audio and writes the VTT, audio and session note', async () => {
+	it('writes the VTT and session note without downloading any media', async () => {
 		const port = await freePort();
 		const textFiles = new Map<string, string>();
 		const binaryFiles = new Map<string, ArrayBuffer>();
@@ -30,13 +33,11 @@ describe('Bilibili import receiver', () => {
 			},
 		} as unknown as App;
 		const imported = vi.fn();
-		const download = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer);
 		const receiver = new YouTubeImportReceiver(app, {
 			port,
 			token: 'secret',
 			folder: 'Glean/YouTube',
 			bilibiliFolder: 'Glean/Bilibili',
-			downloadBilibiliAudio: download,
 			onBilibiliImported: imported,
 		});
 		await receiver.start();
@@ -57,25 +58,71 @@ describe('Bilibili import receiver', () => {
 						url: 'https://www.bilibili.com/video/BV1GJ411x7h7',
 						lang: 'en-US',
 						vtt: 'WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello.\n',
-						audioUrls: [
-							'https://upos-sz-mirrorcos.bilivideo.com/a.m4s',
-						],
+						mediaUrls: [MEDIA_URL],
+						mediaSize: 7725547,
+						mediaQuality: '720P',
+						mediaExpiresAt: 1788433957,
 					}),
 				},
 			);
 			expect(response.status).toBe(200);
-			expect(download).toHaveBeenCalledOnce();
 			expect(
 				textFiles.get('Glean/Bilibili/BV1GJ411x7h7.en-US.vtt'),
 			).toContain('Hello.');
-			expect(binaryFiles.get('Glean/Bilibili/BV1GJ411x7h7.m4a'))
-				.toHaveProperty('byteLength', 3);
-			expect(
-				textFiles.get(
-					'Glean/Bilibili/English Podcast (BV1GJ411x7h7).md',
-				),
-			).toContain('glean-kind: bilibili');
+			// Streaming means nothing heavy lands in the vault.
+			expect(binaryFiles.size).toBe(0);
+
+			const note = textFiles.get(
+				'Glean/Bilibili/English Podcast (BV1GJ411x7h7).md',
+			);
+			expect(note).toContain('glean-kind: bilibili');
+			expect(note).toContain(`media-url: "${MEDIA_URL}"`);
+			expect(note).toContain('7.4 MB');
 			expect(imported).toHaveBeenCalledOnce();
+			expect(imported.mock.calls[0]?.[0]).toMatchObject({
+				mediaUrl: MEDIA_URL,
+				mediaSize: 7725547,
+				mediaExpiresAt: 1788433957,
+			});
+		} finally {
+			await receiver.stop();
+		}
+	});
+
+	it('rejects a payload whose media URL is not a Bilibili CDN', async () => {
+		const port = await freePort();
+		const app = {
+			vault: {
+				getAbstractFileByPath: () => null,
+				createFolder: async () => undefined,
+				create: async () => ({ path: 'x' }),
+			},
+		} as unknown as App;
+		const receiver = new YouTubeImportReceiver(app, {
+			port,
+			token: 'secret',
+			folder: 'Glean/YouTube',
+		});
+		await receiver.start();
+		try {
+			const response = await fetch(
+				`http://127.0.0.1:${port}/glean/import/bilibili`,
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						token: 'secret',
+						bvid: 'BV1GJ411x7h7',
+						page: 1,
+						cid: 123456,
+						title: 'English Podcast',
+						lang: 'en-US',
+						vtt: 'WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi.\n',
+						mediaUrls: ['https://evil.example.com/v.mp4'],
+					}),
+				},
+			);
+			expect(response.status).toBe(400);
 		} finally {
 			await receiver.stop();
 		}

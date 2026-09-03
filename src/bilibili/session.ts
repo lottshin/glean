@@ -11,7 +11,26 @@ export interface BilibiliImportPayload {
 	url: string;
 	lang: string;
 	vtt: string;
-	audioUrls: string[];
+	/** Muxed MP4 links, streamed directly instead of being written to the vault. */
+	mediaUrls: string[];
+	mediaSize: number;
+	mediaQuality: string;
+	/** Unix seconds; the CDN signature dies about two hours after issue. */
+	mediaExpiresAt: number | null;
+}
+
+/** A Bilibili note resolved from its frontmatter. */
+export interface BilibiliSession {
+	bvid: string;
+	page: number;
+	title: string;
+	subtitlePath: string;
+	/** Empty when only a local copy is on record (pre-streaming imports). */
+	mediaUrl: string;
+	mediaSize: number;
+	mediaExpiresAt: number | null;
+	localPath: string | null;
+	notePath: string;
 }
 
 export interface BilibiliImportResult {
@@ -20,7 +39,7 @@ export interface BilibiliImportResult {
 	title: string;
 	notePath: string;
 	subtitlePath: string;
-	audioPath: string;
+	mediaSize: number;
 }
 
 export interface BilibiliImportError {
@@ -46,12 +65,13 @@ export function bilibiliSubtitlePath(
 	return `${folder.replace(/\/+$/, '')}/${bvid}${partSuffix(page)}.${safeLang}.vtt`;
 }
 
-export function bilibiliAudioPath(
+/** Only used by the explicit "save a local copy" action. */
+export function bilibiliMediaPath(
 	folder: string,
 	bvid: string,
 	page: number,
 ): string {
-	return `${folder.replace(/\/+$/, '')}/${bvid}${partSuffix(page)}.m4a`;
+	return `${folder.replace(/\/+$/, '')}/${bvid}${partSuffix(page)}.mp4`;
 }
 
 export function bilibiliNotePath(
@@ -65,6 +85,14 @@ export function bilibiliNotePath(
 	return `${folder.replace(/\/+$/, '')}/${base} (${identity}).md`;
 }
 
+export function formatMediaSize(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes <= 0) {
+		return '未知大小';
+	}
+	const mb = bytes / 1048576;
+	return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+}
+
 export function buildBilibiliSessionNote(input: {
 	title: string;
 	bvid: string;
@@ -74,9 +102,12 @@ export function buildBilibiliSessionNote(input: {
 	url: string;
 	lang: string;
 	subtitlePath: string;
-	audioPath: string;
+	mediaUrl: string;
+	mediaSize: number;
+	mediaQuality: string;
+	mediaExpiresAt: number | null;
 }): string {
-	return [
+	const front = [
 		'---',
 		'glean-kind: bilibili',
 		`glean-video-id: ${JSON.stringify(input.bvid)}`,
@@ -87,22 +118,36 @@ export function buildBilibiliSessionNote(input: {
 		`url: ${JSON.stringify(input.url)}`,
 		`lang: ${JSON.stringify(input.lang)}`,
 		`subtitle: ${JSON.stringify(input.subtitlePath)}`,
-		`audio: ${JSON.stringify(input.audioPath)}`,
-		'---',
+		`media-url: ${JSON.stringify(input.mediaUrl)}`,
+		`media-quality: ${JSON.stringify(input.mediaQuality)}`,
+		`media-size: ${Math.max(0, Math.round(input.mediaSize))}`,
+	];
+	if (input.mediaExpiresAt !== null) {
+		front.push(`media-expires: ${input.mediaExpiresAt}`);
+	}
+	front.push('---');
+
+	const quality = input.mediaQuality || '未知清晰度';
+	return [
+		...front,
 		'',
 		`# ${input.title}`,
 		'',
 		`- UP 主：${input.owner || '未知'}`,
 		`- 链接：${input.url}`,
 		`- 字幕：[[${input.subtitlePath}]]`,
-		`- 音频：[[${input.audioPath}]]`,
+		`- 画面：在线播放 · ${quality} · ${formatMediaSize(input.mediaSize)}`,
 		'',
 		'打开此笔记后，点右上角麦穗即可进入精听。',
+		'',
+		'画面走 B 站直链，不占 vault 空间。直链约两小时后失效，',
+		'届时回 B 站页面再点一次麦穗即可续上；想长期离线复习，',
+		'在精听工具栏选「存为本地副本」。',
 		'',
 	].join('\n');
 }
 
-function isAllowedAudioUrl(value: string): boolean {
+function isAllowedMediaUrl(value: string): boolean {
 	try {
 		const url = new URL(value);
 		const host = url.hostname.toLowerCase();
@@ -134,12 +179,24 @@ export function validateBilibiliImportPayload(
 	const url = typeof record.url === 'string' ? record.url.trim() : '';
 	const lang = typeof record.lang === 'string' ? record.lang.trim() : '';
 	const vtt = typeof record.vtt === 'string' ? record.vtt : '';
-	const audioUrls = Array.isArray(record.audioUrls)
-		? record.audioUrls.filter(
+	const mediaUrls = Array.isArray(record.mediaUrls)
+		? record.mediaUrls.filter(
 				(value): value is string =>
-					typeof value === 'string' && isAllowedAudioUrl(value),
+					typeof value === 'string' && isAllowedMediaUrl(value),
 			)
 		: [];
+	const mediaSize =
+		typeof record.mediaSize === 'number' && record.mediaSize > 0
+			? Math.round(record.mediaSize)
+			: 0;
+	const mediaQuality =
+		typeof record.mediaQuality === 'string' ? record.mediaQuality.trim() : '';
+	const mediaExpiresAt =
+		typeof record.mediaExpiresAt === 'number' &&
+		Number.isSafeInteger(record.mediaExpiresAt) &&
+		record.mediaExpiresAt > 0
+			? record.mediaExpiresAt
+			: null;
 
 	if (!token) {
 		return { ok: false, error: '缺少 token' };
@@ -162,8 +219,8 @@ export function validateBilibiliImportPayload(
 	if (!vtt.trim()) {
 		return { ok: false, error: '缺少字幕内容' };
 	}
-	if (audioUrls.length === 0) {
-		return { ok: false, error: '缺少可用的 B 站音频地址' };
+	if (mediaUrls.length === 0) {
+		return { ok: false, error: '缺少可用的 B 站媒体地址' };
 	}
 
 	return {
@@ -178,7 +235,10 @@ export function validateBilibiliImportPayload(
 			url: url || `https://www.bilibili.com/video/${bvid}`,
 			lang,
 			vtt,
-			audioUrls,
+			mediaUrls,
+			mediaSize,
+			mediaQuality,
+			mediaExpiresAt,
 		},
 	};
 }

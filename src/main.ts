@@ -43,6 +43,7 @@ import {
 	LexiconView,
 } from './views/lexicon';
 import { parseYouTubeSourcePath } from './youtube/id';
+import type { BilibiliSession } from './bilibili/session';
 
 export default class GleanPlugin extends Plugin {
 	settings!: GleanSettings;
@@ -64,13 +65,7 @@ export default class GleanPlugin extends Plugin {
 		notePath: string;
 		subtitlePath: string;
 	} | null = null;
-	private lastBilibiliImport: {
-		bvid: string;
-		title: string;
-		notePath: string;
-		subtitlePath: string;
-		audioPath: string;
-	} | null = null;
+	private lastBilibiliImport: { title: string; notePath: string } | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -196,11 +191,7 @@ export default class GleanPlugin extends Plugin {
 					return false;
 				}
 				if (!checking) {
-					void this.openBilibili(
-						session.audioPath,
-						session.subtitlePath,
-						session.title,
-					);
+					void this.openBilibili(session);
 				}
 				return true;
 			},
@@ -325,11 +316,7 @@ export default class GleanPlugin extends Plugin {
 							item.setTitle('Glean: 精听')
 								.setIcon('headphones')
 								.onClick(() => {
-									void this.openBilibili(
-										bilibili.audioPath,
-										bilibili.subtitlePath,
-										bilibili.title,
-									);
+									void this.openBilibili(bilibili);
 								});
 						});
 					} else {
@@ -440,14 +427,11 @@ export default class GleanPlugin extends Plugin {
 				this.lastYouTubeImport = result;
 				notifyImportSuccess(result.title, result.notePath);
 			},
-			onBilibiliImported: (result: {
-				bvid: string;
-				title: string;
-				notePath: string;
-				subtitlePath: string;
-				audioPath: string;
-			}) => {
-				this.lastBilibiliImport = result;
+			onBilibiliImported: (result: { title: string; notePath: string }) => {
+				this.lastBilibiliImport = {
+					title: result.title,
+					notePath: result.notePath,
+				};
 				notifyImportSuccess(result.title, result.notePath);
 			},
 		};
@@ -804,11 +788,7 @@ export default class GleanPlugin extends Plugin {
 			this.app.workspace.getActiveFile(),
 		);
 		if (bilibili) {
-			return {
-				videoPath: bilibili.audioPath,
-				subtitlePath: bilibili.subtitlePath,
-				title: bilibili.title,
-			};
+			return this.bilibiliListenState(bilibili);
 		}
 		if (this.lastYouTubeImport) {
 			return {
@@ -819,11 +799,12 @@ export default class GleanPlugin extends Plugin {
 			};
 		}
 		if (this.lastBilibiliImport) {
-			return {
-				videoPath: this.lastBilibiliImport.audioPath,
-				subtitlePath: this.lastBilibiliImport.subtitlePath,
-				title: this.lastBilibiliImport.title,
-			};
+			const state = this.bilibiliStateFromNotePath(
+				this.lastBilibiliImport.notePath,
+			);
+			if (state) {
+				return state;
+			}
 		}
 		const file = this.app.workspace.getActiveFile();
 		if (file && MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
@@ -876,18 +857,16 @@ export default class GleanPlugin extends Plugin {
 		this.app.workspace.requestSaveLayout();
 	}
 
-	async openBilibili(
-		audioPath: string,
-		subtitlePath: string,
-		_title: string,
-		seekTo?: number,
-	): Promise<void> {
-		const audio = this.app.vault.getAbstractFileByPath(audioPath);
-		if (!(audio instanceof TFile)) {
-			new Notice(`找不到 B 站音频：${audioPath}`);
+	async openBilibili(session: BilibiliSession, seekTo?: number): Promise<void> {
+		const view = await this.activateListenView({
+			...this.bilibiliListenState(session),
+			seekTo,
+		});
+		if (!view) {
+			new Notice('无法打开 B 站精听视图');
 			return;
 		}
-		await this.openVideo(audio, seekTo, subtitlePath);
+		this.app.workspace.requestSaveLayout();
 	}
 
 	async openYouTube(
@@ -918,12 +897,7 @@ export default class GleanPlugin extends Plugin {
 		return this.youtubeSessionFromFile(file);
 	}
 
-	getBilibiliSession(file: TFile | null): {
-		bvid: string;
-		title: string;
-		subtitlePath: string;
-		audioPath: string;
-	} | null {
+	getBilibiliSession(file: TFile | null): BilibiliSession | null {
 		return this.bilibiliSessionFromFile(file);
 	}
 
@@ -962,12 +936,7 @@ export default class GleanPlugin extends Plugin {
 		};
 	}
 
-	private bilibiliSessionFromFile(file: TFile | null): {
-		bvid: string;
-		title: string;
-		subtitlePath: string;
-		audioPath: string;
-	} | null {
+	private bilibiliSessionFromFile(file: TFile | null): BilibiliSession | null {
 		if (!file) {
 			return null;
 		}
@@ -981,24 +950,86 @@ export default class GleanPlugin extends Plugin {
 				: undefined;
 		const bvid = frontmatter?.['glean-video-id'];
 		const subtitlePath = frontmatter?.subtitle;
-		const audioPath = frontmatter?.audio;
 		if (
 			frontmatter?.['glean-kind'] !== 'bilibili' ||
 			typeof bvid !== 'string' ||
-			typeof subtitlePath !== 'string' ||
-			typeof audioPath !== 'string'
+			typeof subtitlePath !== 'string'
 		) {
+			return null;
+		}
+		// `audio` is what pre-streaming imports wrote; treat it as a local copy so
+		// notes captured before this change keep playing.
+		const localPath =
+			typeof frontmatter.media === 'string'
+				? frontmatter.media
+				: typeof frontmatter.audio === 'string'
+					? frontmatter.audio
+					: null;
+		const mediaUrl =
+			typeof frontmatter['media-url'] === 'string'
+				? frontmatter['media-url']
+				: '';
+		if (!mediaUrl && !localPath) {
 			return null;
 		}
 		return {
 			bvid,
+			page: typeof frontmatter['glean-page'] === 'number'
+				? frontmatter['glean-page']
+				: 1,
 			subtitlePath,
-			audioPath,
+			mediaUrl,
+			mediaSize:
+				typeof frontmatter['media-size'] === 'number'
+					? frontmatter['media-size']
+					: 0,
+			mediaExpiresAt:
+				typeof frontmatter['media-expires'] === 'number'
+					? frontmatter['media-expires']
+					: null,
+			localPath,
+			notePath: file.path,
 			title:
 				typeof frontmatter.title === 'string'
 					? frontmatter.title
 					: file.basename,
 		};
+	}
+
+	/** A saved local copy wins over the signed link, which expires. */
+	private bilibiliListenState(session: BilibiliSession): ListenState {
+		if (session.localPath) {
+			const local = this.app.vault.getAbstractFileByPath(session.localPath);
+			if (local instanceof TFile) {
+				return {
+					kind: 'local',
+					videoPath: local.path,
+					subtitlePath: session.subtitlePath,
+					title: session.title,
+				};
+			}
+		}
+		return {
+			kind: 'bilibili',
+			bvid: session.bvid,
+			page: session.page,
+			title: session.title,
+			mediaUrl: session.mediaUrl,
+			mediaSize: session.mediaSize,
+			mediaExpiresAt: session.mediaExpiresAt,
+			notePath: session.notePath,
+			subtitlePath: session.subtitlePath,
+		};
+	}
+
+	/** Used when restoring a layout, where the saved link may already be dead. */
+	bilibiliStateFromNotePath(notePath: string): ListenState | null {
+		const note = this.app.vault.getAbstractFileByPath(notePath);
+		if (!(note instanceof TFile)) {
+			return null;
+		}
+		const session = this.bilibiliSessionFromFile(note);
+		return session ? this.bilibiliListenState(session) : null;
 	}
 
 	private findYouTubeSession(videoId: string): {

@@ -490,11 +490,7 @@ export class ReadingMode {
 		const bilibili = this.plugin.getBilibiliSession(file);
 		if (bilibili) {
 			const button = view.addAction(READ_ICON, 'Glean 精听', () => {
-				void this.plugin.openBilibili(
-					bilibili.audioPath,
-					bilibili.subtitlePath,
-					bilibili.title,
-				);
+				void this.plugin.openBilibili(bilibili);
 			});
 			button.addClass(ACTION_CLASS);
 			return;

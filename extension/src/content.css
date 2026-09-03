@@ -106,6 +106,18 @@
 	--glean-icon-size: 28px;
 }
 
+/*
+ * Bilibili's control buttons are 22px tall inside a 35px row, so the default
+ * 28px tile stands taller than every native icon next to it.
+ */
+.bpx-player-control-bottom-left #glean-sync-button.glean-sync-btn,
+.bpx-player-control-bottom-right #glean-sync-button.glean-sync-btn {
+	--glean-icon-size: 20px;
+	height: 22px;
+	align-self: center;
+	padding: 0 5px;
+}
+
 /* Transient status bubble above the mark. */
 .glean-sync-btn .glean-sync-toast {
 	position: absolute;

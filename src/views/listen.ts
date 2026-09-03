@@ -1,4 +1,11 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, type ViewStateResult } from 'obsidian';
+import {
+	ItemView,
+	Notice,
+	TFile,
+	WorkspaceLeaf,
+	normalizePath,
+	type ViewStateResult,
+} from 'obsidian';
 import { normalizeDictionaryKey } from '../dictionary';
 import type GleanPlugin from '../main';
 import { cueIndexAt } from '../media/cues';
@@ -33,6 +40,13 @@ import {
 	type MediaSource,
 } from '../media/types';
 import { YouTubeSource } from '../media/youtube';
+import { bilibiliSourcePath } from '../bilibili/id';
+import { bilibiliMediaPath, formatMediaSize } from '../bilibili/session';
+import {
+	bilibiliProxyUrl,
+	downloadBilibiliMedia,
+	writeBinaryFile,
+} from '../import/receiver';
 import { youtubeSourcePath } from '../youtube/id';
 import { isGleanSegmentedSubtitles, refineCaptionCues } from '../youtube/vtt';
 import { GleanWordPopover } from './word-popup';
@@ -48,6 +62,30 @@ export interface ListenState {
 	subtitlePath?: string | null;
 	seekTo?: number;
 	mode?: GleanViewMode;
+	/**
+	 * Bilibili streams from a signed CDN link rather than a vault file. Its id
+	 * stays in `bvid` because a truthy `videoId` means "this is YouTube".
+	 */
+	bvid?: string;
+	mediaUrl?: string;
+	mediaSize?: number;
+	mediaExpiresAt?: number | null;
+	page?: number;
+	notePath?: string;
+}
+
+export interface BilibiliStream {
+	bvid: string;
+	page: number;
+	title: string;
+	mediaUrl: string;
+	mediaSize: number;
+	expiresAt: number | null;
+	notePath: string;
+}
+
+function isStreamExpired(expiresAt: number | null): boolean {
+	return expiresAt !== null && expiresAt * 1000 <= Date.now();
 }
 
 type DictCellView = DictCell & { span: HTMLElement };
@@ -107,6 +145,12 @@ export class ListenView extends ItemView {
 	private currentVideo: TFile | null = null;
 	private currentSubtitle: TFile | null = null;
 	private currentYouTube: { videoId: string; title: string } | null = null;
+	private currentBilibili: BilibiliStream | null = null;
+	/**
+	 * Kept when a stream fails to load so "save a local copy" stays reachable —
+	 * downloading is the way out when streaming is what broke.
+	 */
+	private bilibiliFallback: BilibiliStream | null = null;
 	private sentenceMode = false;
 	/** True only after the playhead has entered the target sentence (avoids seek race). */
 	private sentenceArmed = false;
@@ -138,6 +182,7 @@ export class ListenView extends ItemView {
 	private dictWrong = false;
 	private dictRevealed = false;
 	private advanceTimer: number | null = null;
+	private saveLocalBtn: HTMLButtonElement | null = null;
 	private playerPaneEl: HTMLElement | null = null;
 	private audioTitleEl: HTMLElement | null = null;
 	private audioSubEl: HTMLElement | null = null;
@@ -153,7 +198,10 @@ export class ListenView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		const title = this.currentVideo?.basename ?? this.currentYouTube?.title;
+		const title =
+			this.currentVideo?.basename ??
+			this.currentYouTube?.title ??
+			this.currentBilibili?.title;
 		return title ? `Glean · ${title}` : 'Glean 精听';
 	}
 
@@ -163,13 +211,18 @@ export class ListenView extends ItemView {
 
 	/** No media loaded yet, so this tab can take any without losing anything. */
 	isVacant(): boolean {
-		return !this.currentVideo && !this.currentYouTube;
+		return !this.currentVideo && !this.currentYouTube && !this.currentBilibili;
 	}
 
 	/** Whether this tab already holds the media a request is asking for. */
 	holdsMedia(state: ListenState): boolean {
 		if (state.kind === 'youtube' || state.videoId) {
 			return !!state.videoId && this.currentYouTube?.videoId === state.videoId;
+		}
+		if (state.kind === 'bilibili') {
+			return (
+				!!state.notePath && this.currentBilibili?.notePath === state.notePath
+			);
 		}
 		return !!state.videoPath && this.currentVideo?.path === state.videoPath;
 	}
@@ -190,6 +243,14 @@ export class ListenView extends ItemView {
 	}
 
 	async openMedia(state: ListenState): Promise<void> {
+		if (state.kind === 'bilibili') {
+			if (!state.mediaUrl) {
+				this.setStatus('缺少 B 站播放地址');
+				return;
+			}
+			await this.openBilibiliMedia(state);
+			return;
+		}
 		if (state.kind === 'youtube' || state.videoId) {
 			if (!state.videoId) {
 				this.setStatus('缺少 YouTube 视频 ID');
@@ -286,6 +347,15 @@ export class ListenView extends ItemView {
 			attr: { title: '显示 / 隐藏原句 (H)·仅听写模式' },
 		});
 		this.hideBtn.addEventListener('click', () => this.toggleHidden());
+
+		this.saveLocalBtn = opts.createEl('button', {
+			text: '存本地',
+			cls: 'glean-btn is-hidden-ctrl',
+			attr: { title: '把 B 站画面存进 vault，直链过期后仍可复习' },
+		});
+		this.saveLocalBtn.addEventListener('click', () => {
+			void this.saveBilibiliCopy();
+		});
 
 		const rateSelect = opts.createEl('select', { cls: 'glean-rate', attr: { title: '倍速' } });
 		for (const rate of PLAYBACK_RATES) {
@@ -521,9 +591,15 @@ export class ListenView extends ItemView {
 
 	private syncMediaChrome(): void {
 		const root = this.contentEl;
-		const has = !!this.currentVideo || !!this.currentYouTube;
+		const has =
+			!!this.currentVideo || !!this.currentYouTube || !!this.currentBilibili;
 		root.toggleClass('has-media', has);
 		root.toggleClass('is-youtube', this.currentYouTube !== null);
+		root.toggleClass('is-bilibili', this.currentBilibili !== null);
+		this.saveLocalBtn?.toggleClass(
+			'is-hidden-ctrl',
+			this.currentBilibili === null && this.bilibiliFallback === null,
+		);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
 		root.toggleClass('is-audio', isAudio);
@@ -572,6 +648,7 @@ export class ListenView extends ItemView {
 		} catch {
 			this.currentVideo = null;
 			this.currentYouTube = null;
+			this.currentBilibili = null;
 			this.currentSubtitle = null;
 			this.syncMediaChrome();
 			this.setStatus('媒体无法播放。试试 mp4 / webm / mp3 / m4a。');
@@ -584,6 +661,8 @@ export class ListenView extends ItemView {
 
 		this.currentVideo = video;
 		this.currentYouTube = null;
+		this.currentBilibili = null;
+		this.bilibiliFallback = null;
 		this.currentSubtitle = subtitle;
 		this.cues = cues;
 		this.activeIndex = -1;
@@ -649,6 +728,7 @@ export class ListenView extends ItemView {
 		} catch (error) {
 			this.currentVideo = null;
 			this.currentYouTube = null;
+			this.currentBilibili = null;
 			this.currentSubtitle = null;
 			this.syncMediaChrome();
 			this.setStatus(error instanceof Error ? error.message : 'YouTube 播放失败');
@@ -656,6 +736,8 @@ export class ListenView extends ItemView {
 		}
 
 		this.currentVideo = null;
+		this.currentBilibili = null;
+		this.bilibiliFallback = null;
 		this.currentYouTube = {
 			videoId: state.videoId,
 			title: state.title?.trim() || state.videoId,
@@ -682,6 +764,175 @@ export class ListenView extends ItemView {
 		this.updateTime(this.source.getCurrentTime());
 		this.app.workspace.requestSaveLayout();
 		this.contentEl.focus({ preventScroll: true });
+	}
+
+	/**
+	 * Streams the muxed MP4 straight from B 站 CDN. The link is signed and dies
+	 * after roughly two hours, so a load failure most likely means it expired
+	 * rather than that the video is gone.
+	 */
+	private async openBilibiliMedia(state: ListenState): Promise<void> {
+		if (!this.mediaHostEl || !state.mediaUrl) {
+			return;
+		}
+		let subtitle: TFile | null = null;
+		if (state.subtitlePath) {
+			const found = this.app.vault.getAbstractFileByPath(state.subtitlePath);
+			if (found instanceof TFile) {
+				subtitle = found;
+			}
+		}
+		if (!subtitle) {
+			this.setStatus('找不到 B 站字幕文件');
+			return;
+		}
+
+		const cues = cuesFromSubtitleBody(await this.app.vault.read(subtitle));
+		if (cues.length === 0) {
+			this.setStatus('B 站字幕为空或格式无效');
+			return;
+		}
+
+		this.closeWordLookup();
+		this.exitSentenceMode();
+		this.ensureSource('local');
+		this.source.pause();
+		this.setStatus('正在连接 B 站…');
+		if (state.seekTo !== undefined) {
+			this.pendingSeek = state.seekTo;
+		}
+		if (state.mode === 'listen' || state.mode === 'dictation') {
+			this.mode = state.mode;
+		}
+
+		const stream: BilibiliStream = {
+			bvid: state.bvid ?? '',
+			page: state.page ?? 1,
+			title: state.title?.trim() || state.bvid || 'B 站视频',
+			mediaUrl: state.mediaUrl,
+			mediaSize: state.mediaSize ?? 0,
+			expiresAt: state.mediaExpiresAt ?? null,
+			notePath: state.notePath ?? '',
+		};
+
+		// The CDN rejects any request a browser can make, so the picture has to
+		// come through the plugin's local server.
+		if (!this.plugin.isYouTubeReceiverRunning()) {
+			this.currentBilibili = null;
+			this.bilibiliFallback = stream;
+			this.syncMediaChrome();
+			this.setStatus(
+				'B 站在线播放需要采集接收端在运行，请到设置里打开，或点「存本地」下载。',
+			);
+			return;
+		}
+		const playbackUrl = bilibiliProxyUrl(
+			this.plugin.settings.youtubeReceiverPort,
+			this.plugin.settings.youtubeReceiverToken,
+			stream.mediaUrl,
+		);
+
+		try {
+			await this.source.load(playbackUrl, cues);
+		} catch {
+			this.currentVideo = null;
+			this.currentYouTube = null;
+			this.currentBilibili = null;
+			this.currentSubtitle = null;
+			this.bilibiliFallback = stream;
+			this.syncMediaChrome();
+			this.setStatus(
+				isStreamExpired(stream.expiresAt)
+					? 'B 站直链已过期。回到该视频页面再点一次麦穗即可续上。'
+					: 'B 站画面加载失败。可以点「存本地」下载，或回视频页面重新同步。',
+			);
+			return;
+		}
+
+		this.currentVideo = null;
+		this.currentYouTube = null;
+		this.currentBilibili = stream;
+		this.bilibiliFallback = null;
+		this.currentSubtitle = subtitle;
+		this.cues = cues;
+		this.activeIndex = -1;
+		this.clearAdvanceTimer();
+		this.syncMediaChrome();
+		this.syncModeChrome();
+		this.renderCues();
+		this.refreshFocus();
+		if (this.mode === 'dictation') {
+			this.loadDictationForActive();
+		}
+		this.source.setPlaybackRate(this.plugin.settings.defaultRate);
+		if (this.pendingSeek !== null) {
+			this.source.seekTo(this.pendingSeek);
+			this.pendingSeek = null;
+		}
+		this.setStatus(
+			`${stream.title} · 在线 · ${subtitle.name} · ${cues.length} 句`,
+		);
+		this.updateTime(this.source.getCurrentTime());
+		this.app.workspace.requestSaveLayout();
+		this.contentEl.focus({ preventScroll: true });
+	}
+
+	/**
+	 * Pulls the streamed MP4 into the vault and records it on the note, so the
+	 * session survives the CDN link expiring.
+	 */
+	private async saveBilibiliCopy(): Promise<void> {
+		const stream = this.currentBilibili ?? this.bilibiliFallback;
+		if (!stream) {
+			return;
+		}
+		const folder = normalizePath(
+			this.plugin.settings.bilibiliFolder.trim() || 'Glean/Bilibili',
+		);
+		const target = normalizePath(
+			bilibiliMediaPath(folder, stream.bvid, stream.page),
+		);
+		const resume = this.source.getCurrentTime();
+		const subtitlePath = this.currentSubtitle?.path ?? null;
+
+		if (!(this.app.vault.getAbstractFileByPath(target) instanceof TFile)) {
+			if (isStreamExpired(stream.expiresAt)) {
+				new Notice('B 站直链已过期，先回视频页面重新同步一次');
+				return;
+			}
+			const button = this.saveLocalBtn;
+			button?.setAttr('disabled', 'true');
+			new Notice(`正在下载 ${formatMediaSize(stream.mediaSize)}…`);
+			try {
+				const bytes = await downloadBilibiliMedia([stream.mediaUrl]);
+				await writeBinaryFile(this.app, target, bytes);
+			} catch (error) {
+				new Notice(
+					error instanceof Error ? error.message : 'B 站画面下载失败',
+				);
+				return;
+			} finally {
+				button?.removeAttribute('disabled');
+			}
+			const note = this.app.vault.getAbstractFileByPath(stream.notePath);
+			if (note instanceof TFile) {
+				await this.app.fileManager.processFrontMatter(
+					note,
+					(frontmatter: Record<string, unknown>) => {
+						frontmatter.media = target;
+					},
+				);
+			}
+			new Notice('已存为本地副本');
+		}
+
+		await this.openMedia({
+			kind: 'local',
+			videoPath: target,
+			subtitlePath,
+			seekTo: resume,
+			mode: this.mode,
+		});
 	}
 
 	private renderCues(): void {
@@ -853,12 +1104,17 @@ export class ListenView extends ItemView {
 		this.paintWordSelection(previous, this.selectedWord);
 		const initialCard = this.plugin.findLexiconCard(word);
 		const sourceName =
-			this.currentVideo?.name ?? this.currentYouTube?.title ?? '当前媒体';
+			this.currentVideo?.name ??
+			this.currentYouTube?.title ??
+			this.currentBilibili?.title ??
+			'当前媒体';
 		const sourcePath = this.currentVideo
 			? this.currentVideo.path
 			: this.currentYouTube
 				? youtubeSourcePath(this.currentYouTube.videoId)
-				: null;
+				: this.currentBilibili
+					? bilibiliSourcePath(this.currentBilibili.bvid)
+					: null;
 		this.wordPopover.open(anchor, {
 			lookupId,
 			word,
@@ -1524,7 +1780,11 @@ export class ListenView extends ItemView {
 		const format = file.extension.toLowerCase() === 'srt' ? 'srt' : 'vtt';
 		const body = serializeSubtitles(this.cues, format);
 		await this.app.vault.modify(file, body);
-		const label = this.currentVideo?.name ?? this.currentYouTube?.title ?? file.name;
+		const label =
+			this.currentVideo?.name ??
+			this.currentYouTube?.title ??
+			this.currentBilibili?.title ??
+			file.name;
 		this.setStatus(`${label} · ${file.name} · ${this.cues.length} 句`);
 	}
 
@@ -1654,6 +1914,7 @@ export class ListenView extends ItemView {
 		this.inputEl = null;
 		this.dictHintEl = null;
 		this.hideBtn = null;
+		this.saveLocalBtn = null;
 		this.modeListenBtn = null;
 		this.modeDictBtn = null;
 		this.playerPaneEl = null;
@@ -1668,6 +1929,21 @@ export class ListenView extends ItemView {
 				kind: 'youtube',
 				videoId: this.currentYouTube.videoId,
 				title: this.currentYouTube.title,
+				subtitlePath: this.currentSubtitle?.path ?? null,
+				seekTo: this.source.getCurrentTime(),
+				mode: this.mode,
+			};
+		}
+		if (this.currentBilibili) {
+			return {
+				kind: 'bilibili',
+				bvid: this.currentBilibili.bvid,
+				page: this.currentBilibili.page,
+				title: this.currentBilibili.title,
+				mediaUrl: this.currentBilibili.mediaUrl,
+				mediaSize: this.currentBilibili.mediaSize,
+				mediaExpiresAt: this.currentBilibili.expiresAt,
+				notePath: this.currentBilibili.notePath,
 				subtitlePath: this.currentSubtitle?.path ?? null,
 				seekTo: this.source.getCurrentTime(),
 				mode: this.mode,
@@ -1701,6 +1977,30 @@ export class ListenView extends ItemView {
 				videoId: s.videoId,
 				title: typeof s.title === 'string' ? s.title : undefined,
 				subtitlePath: typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
+				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,
+				mode: s.mode,
+			});
+		} else if (s.kind === 'bilibili' && typeof s.mediaUrl === 'string') {
+			// A restored layout can be hours old, so the signed link may be dead;
+			// re-resolve from the note instead of replaying a stale URL.
+			const fresh =
+				typeof s.notePath === 'string'
+					? this.plugin.bilibiliStateFromNotePath(s.notePath)
+					: null;
+			await this.openMedia({
+				...(fresh ?? {
+					kind: 'bilibili',
+					bvid: typeof s.bvid === 'string' ? s.bvid : undefined,
+					page: typeof s.page === 'number' ? s.page : 1,
+					title: typeof s.title === 'string' ? s.title : undefined,
+					mediaUrl: s.mediaUrl,
+					mediaSize: typeof s.mediaSize === 'number' ? s.mediaSize : 0,
+					mediaExpiresAt:
+						typeof s.mediaExpiresAt === 'number' ? s.mediaExpiresAt : null,
+					notePath: typeof s.notePath === 'string' ? s.notePath : '',
+					subtitlePath:
+						typeof s.subtitlePath === 'string' ? s.subtitlePath : null,
+				}),
 				seekTo: typeof s.seekTo === 'number' ? s.seekTo : undefined,
 				mode: s.mode,
 			});
