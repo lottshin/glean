@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	captureBilibiliPage,
+	findSignedPlayerUrl,
 	parsePageNumber,
 	parseParts,
 	parseVideoInfo,
@@ -86,6 +87,35 @@ describe('part selection', () => {
 		const parts = parseParts(viewResponse);
 		expect(selectPart(parts, 9)?.cid).toBe(1001);
 		expect(selectPart([], 1)).toBeNull();
+	});
+});
+
+describe('signed player request discovery', () => {
+	const signed =
+		'https://api.bilibili.com/x/player/wbi/v2?aid=12345&cid=1001&w_rid=abc&wts=123';
+
+	it('finds the page request for the requested aid and cid', () => {
+		expect(
+			findSignedPlayerUrl(
+				[
+					'https://api.bilibili.com/x/player/wbi/v2?aid=9&cid=8&w_rid=x&wts=1',
+					signed,
+				],
+				12345,
+				1001,
+			),
+		).toBe(signed);
+	});
+
+	it('rejects unsigned and mismatched requests', () => {
+		expect(
+			findSignedPlayerUrl(
+				['https://api.bilibili.com/x/player/wbi/v2?aid=12345&cid=1001'],
+				12345,
+				1001,
+			),
+		).toBeNull();
+		expect(findSignedPlayerUrl([signed], 12345, 1002)).toBeNull();
 	});
 });
 

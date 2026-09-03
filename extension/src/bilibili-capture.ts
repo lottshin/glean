@@ -97,6 +97,47 @@ export function selectPart(parts: BilibiliPart[], page: number): BilibiliPart | 
 }
 
 /**
+ * Reuse the exact WBI URL the Bilibili page has already signed. The unsigned
+ * /x/player/v2 endpoint is observably inconsistent: for the same signed-in
+ * account and video it can alternate between full tracks, AI-only, and empty.
+ */
+export function findSignedPlayerUrl(
+	resourceUrls: readonly string[],
+	aid: number,
+	cid: number,
+): string | null {
+	for (let i = resourceUrls.length - 1; i >= 0; i -= 1) {
+		const raw = resourceUrls[i];
+		if (!raw?.includes('/x/player/wbi/v2?')) {
+			continue;
+		}
+		try {
+			const url = new URL(raw);
+			if (
+				url.searchParams.get('aid') === String(aid) &&
+				url.searchParams.get('cid') === String(cid) &&
+				url.searchParams.has('w_rid') &&
+				url.searchParams.has('wts')
+			) {
+				return url.toString();
+			}
+		} catch {
+			// Ignore malformed performance entries.
+		}
+	}
+	return null;
+}
+
+function currentResourceUrls(): string[] {
+	if (typeof performance === 'undefined') {
+		return [];
+	}
+	return performance
+		.getEntriesByType('resource')
+		.map((entry) => entry.name);
+}
+
+/**
  * Collect everything needed to sync one Bilibili video.
  *
  * Runs from the content script so requests carry the user's bilibili.com
@@ -139,19 +180,38 @@ export async function captureBilibiliPage(
 			: info.title,
 		owner: info.owner,
 		url: `https://www.bilibili.com/video/${info.bvid}${part.page > 1 ? `?p=${part.page}` : ''}`,
-		tracks: await fetchSubtitleTracks(info.aid, part.cid, fetchImpl),
+		tracks: await fetchSubtitleTracks(
+			info.aid,
+			part.cid,
+			fetchImpl,
+			findSignedPlayerUrl(currentResourceUrls(), info.aid, part.cid),
+		),
 	};
 }
 
 /**
- * The wbi-signed endpoint returns fresher urls but needs a signature and can
- * answer 412 under rate limiting, so fall back to the plain one.
+ * Prefer the page's WBI-signed endpoint. The plain endpoint remains a fallback
+ * for tests and pages where the resource entry has already been cleared.
  */
 export async function fetchSubtitleTracks(
 	aid: number,
 	cid: number,
 	fetchImpl: typeof fetch = fetch,
+	signedUrl: string | null = null,
 ): Promise<BilibiliSubtitleTrack[]> {
+	if (signedUrl) {
+		try {
+			const signed = await fetchImpl(signedUrl, {
+				credentials: 'include',
+				cache: 'no-store',
+			});
+			if (signed.ok) {
+				return parseSubtitleTracks(await signed.json());
+			}
+		} catch {
+			// Fall through to the legacy endpoint with an actionable result.
+		}
+	}
 	const url = `https://api.bilibili.com/x/player/v2?aid=${aid}&cid=${cid}`;
 	const response = await fetchImpl(url, { credentials: 'include' });
 	if (!response.ok) {
