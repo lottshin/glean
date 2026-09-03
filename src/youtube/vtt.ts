@@ -1157,12 +1157,13 @@ export function mergeCaptionCues(cues: CaptionCue[]): CaptionCue[] {
  * last spoken word so seeking into the gap does not keep highlighting it.
  * Do not shrink when cues are already contiguous — that would fight ASR ends.
  *
- * Contiguous cues get a second pass (`snapLateBoundaryOnsets`): YouTube often
- * stamps the first word after a breath late (mid/end of the phoneme), so
- * ending the previous cue at that stamp steals the attack ("guys" hears "I").
+ * Sub-100ms boundary error (an ASR stamp sitting just inside the next word's
+ * attack) is not fixable from word clocks alone. Note that audible bleed at a
+ * cue end is usually not this: the player stops on a 250ms poll, so it overruns
+ * the boundary by far more than the stamps are ever wrong.
  */
 function tightenCueEnds(cues: CaptionCue[]): CaptionCue[] {
-	const tightened = cues.map((cue, index) => {
+	return cues.map((cue, index) => {
 		const next = cues[index + 1];
 		let end = cue.end;
 		if (next && next.start > cue.start) {
@@ -1186,97 +1187,6 @@ function tightenCueEnds(cues: CaptionCue[]): CaptionCue[] {
 		}
 		return end === cue.end ? cue : { ...cue, end };
 	});
-	return snapLateBoundaryOnsets(tightened);
-}
-
-/** Fallback speech rate (seconds per character) when a track is too short. */
-const DEFAULT_SECONDS_PER_CHAR = 0.06;
-const MIN_MEASURED_PAIRS = 24;
-
-/**
- * Measure this speaker's rate from the track's own word clocks.
- * Only consecutive words inside one breath (0.04–0.6s apart) describe speech
- * rate; longer gaps are pauses. Beats a hard-coded duration formula, which
- * over-estimates short words and pushes cue boundaries past the next onset.
- */
-function measureSecondsPerChar(cues: CaptionCue[]): number {
-	const ratios: number[] = [];
-	for (const cue of cues) {
-		const words = cue.words;
-		if (!words) {
-			continue;
-		}
-		for (let i = 1; i < words.length; i += 1) {
-			const prev = words[i - 1];
-			const cur = words[i];
-			if (!prev || !cur) {
-				continue;
-			}
-			const gap = cur.start - prev.start;
-			if (gap >= 0.04 && gap <= 0.6 && prev.text.length > 0) {
-				ratios.push(gap / prev.text.length);
-			}
-		}
-	}
-	if (ratios.length < MIN_MEASURED_PAIRS) {
-		return DEFAULT_SECONDS_PER_CHAR;
-	}
-	ratios.sort((a, b) => a - b);
-	const median = ratios[Math.floor(ratios.length / 2)] ?? DEFAULT_SECONDS_PER_CHAR;
-	return Math.min(0.12, Math.max(0.03, median));
-}
-
-/**
- * Pull a shared cue boundary back when the next cue's first word is stamped
- * late after a pause. Keeps the previous cue from swallowing the attack.
- */
-export function snapLateBoundaryOnsets(cues: CaptionCue[]): CaptionCue[] {
-	if (cues.length < 2) {
-		return cues;
-	}
-	const secondsPerChar = measureSecondsPerChar(cues);
-	const spokenDuration = (word: string): number =>
-		Math.min(0.5, Math.max(0.08, secondsPerChar * word.length));
-	const out: CaptionCue[] = cues.map((cue) => ({
-		...cue,
-		words: cue.words?.map((word) => ({ ...word })),
-	}));
-	for (let i = 0; i < out.length - 1; i += 1) {
-		const left = out[i];
-		const right = out[i + 1];
-		if (!left || !right) {
-			continue;
-		}
-		const last = left.words?.[left.words.length - 1];
-		const first = right.words?.[0];
-		if (!last || !first) {
-			continue;
-		}
-		const asrOnset = first.start;
-		// Left cue must still be running into the next word's ASR stamp.
-		if (left.end < asrOnset - 0.05) {
-			continue;
-		}
-		const spokenEnd = last.start + spokenDuration(last.text);
-		const gap = asrOnset - spokenEnd;
-		// Need a real post-word pause, but not an absurd music/silence hole.
-		if (gap < 0.12 || gap > 2.5) {
-			continue;
-		}
-		// The breath belongs to the next cue: leading silence there is harmless,
-		// while any of it kept on the left cue is already the next word's attack.
-		const onset = Math.min(spokenEnd, asrOnset);
-		if (asrOnset - onset < 0.06) {
-			continue;
-		}
-		first.start = onset;
-		left.end = onset;
-		right.start = onset;
-		if (right.words && right.words.length > 0) {
-			right.words[0] = first;
-		}
-	}
-	return out;
 }
 
 /**

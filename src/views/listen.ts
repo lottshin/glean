@@ -34,11 +34,7 @@ import {
 } from '../media/types';
 import { YouTubeSource } from '../media/youtube';
 import { youtubeSourcePath } from '../youtube/id';
-import {
-	isGleanSegmentedSubtitles,
-	refineCaptionCues,
-	snapLateBoundaryOnsets,
-} from '../youtube/vtt';
+import { isGleanSegmentedSubtitles, refineCaptionCues } from '../youtube/vtt';
 import { GleanWordPopover } from './word-popup';
 export const LISTEN_VIEW_TYPE = 'glean-listen';
 
@@ -78,19 +74,11 @@ function refineListenCues(cues: Cue[]): Cue[] {
 	return withCueIndexes(refineCaptionCues(cues));
 }
 
-/**
- * Timing-only pass for already-segmented / manually edited VTT.
- * Pulls late post-pause onsets so adjacent cues do not share a stolen attack.
- */
-function retightenListenBoundaries(cues: Cue[]): Cue[] {
-	return withCueIndexes(snapLateBoundaryOnsets(cues));
-}
-
 /** Manual edits and already-segmented syncs must not re-run NLP on open. */
 function cuesFromSubtitleBody(raw: string): Cue[] {
 	const parsed = parseSubtitles(raw);
 	if (isGleanEditedSubtitles(raw) || isGleanSegmentedSubtitles(raw)) {
-		return retightenListenBoundaries(parsed);
+		return parsed;
 	}
 	return refineListenCues(parsed);
 }

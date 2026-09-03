@@ -23,7 +23,6 @@ import {
 	healIncompleteCues,
 	refineCaptionCues,
 	refineWebVtt,
-	snapLateBoundaryOnsets,
 	splitLongCues,
 	timedTextToWebVtt,
 } from '../src/youtube/vtt';
@@ -379,75 +378,6 @@ describe('YouTube timedtext conversion', () => {
 		expect(texts.some((text) => text.startsWith('i am here'))).toBe(true);
 		expect(texts.every((text) => text !== 'so yes')).toBe(true);
 		expect(texts.every((text) => !/^guys\b/.test(text))).toBe(true);
-	});
-
-	it('does not let "so yes guys" swallow the attack of the next "I"', () => {
-		// Real vault timings: guys@32.920, I stamped @33.800 (late into the phoneme).
-		// Ending the previous cue at 33.800 steals most of "I"; the next cue only
-		// hears a stub. Snap the shared boundary back toward the end of "guys".
-		const cues = snapLateBoundaryOnsets([
-			{
-				start: 32.0,
-				end: 33.8,
-				text: 'so yes guys',
-				words: [
-					{ text: 'so', start: 32.0 },
-					{ text: 'yes', start: 32.559 },
-					{ text: 'guys', start: 32.92 },
-				],
-			},
-			{
-				start: 33.8,
-				end: 39.879,
-				text: "I am here in Shanghai China it's been a long time coming I've been wanting to come here for years and years",
-				words: [
-					{ text: 'I', start: 33.8 },
-					{ text: 'am', start: 34.239 },
-					{ text: 'here', start: 34.52 },
-				],
-			},
-		]);
-		const so = cues[0];
-		const next = cues[1];
-		expect(so).toBeDefined();
-		expect(next).toBeDefined();
-		// The whole breath goes to the next cue: cut right after "guys" is spoken.
-		expect(so!.end).toBeLessThan(33.45);
-		expect(so!.end).toBeGreaterThan(33.1);
-		expect(next!.start).toBe(so!.end);
-		expect(next!.words?.[0]?.start).toBe(so!.end);
-	});
-
-	it('times the boundary from the track\'s measured speech rate', () => {
-		// A fast speaker: 4-char words every 0.2s → 0.05 s/char. A fixed duration
-		// formula would call "guys" 0.42s long and cut at 33.34, still inside the
-		// next word. Measuring the track puts "guys" at 0.2s and cuts at ~33.12.
-		const words = [];
-		for (let i = 25; i >= 1; i -= 1) {
-			words.push({ text: 'word', start: Number((32.92 - i * 0.2).toFixed(3)) });
-		}
-		words.push({ text: 'guys', start: 32.92 });
-		const cues = snapLateBoundaryOnsets([
-			{
-				start: words[0]!.start,
-				end: 33.8,
-				text: words.map((word) => word.text).join(' '),
-				words,
-			},
-			{
-				start: 33.8,
-				end: 39.879,
-				text: 'I am here',
-				words: [
-					{ text: 'I', start: 33.8 },
-					{ text: 'am', start: 34.239 },
-					{ text: 'here', start: 34.52 },
-				],
-			},
-		]);
-		expect(cues[0]!.end).toBeLessThan(33.2);
-		expect(cues[0]!.end).toBeGreaterThan(33.0);
-		expect(cues[1]!.start).toBe(cues[0]!.end);
 	});
 
 	it('splits ">>" speaker turns and drops inline [music]', () => {
