@@ -107,14 +107,15 @@
 }
 
 /*
- * Bilibili's control buttons are 22px tall inside a 35px row, so the default
- * 28px tile stands taller than every native icon next to it.
+ * Bilibili's control buttons are 22px tall inside a 35px flex row, and they sit
+ * against its top edge rather than centred — the row's extra 13px all falls
+ * below them. Centring here would drop the tile 6.5px under every native icon.
  */
 .bpx-player-control-bottom-left #glean-sync-button.glean-sync-btn,
 .bpx-player-control-bottom-right #glean-sync-button.glean-sync-btn {
 	--glean-icon-size: 20px;
 	height: 22px;
-	align-self: center;
+	align-self: flex-start;
 	padding: 0 5px;
 }
 
