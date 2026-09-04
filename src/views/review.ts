@@ -91,6 +91,7 @@ export class ReviewView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		this.plugin.stopSpeaking();
 		this.contentEl.empty();
 	}
 
@@ -220,7 +221,16 @@ export class ReviewView extends ItemView {
 			cls: 'glean-review-progress',
 			text: `${this.index + 1} / ${this.queue.length}`,
 		});
-		const openNote = header.createEl('button', {
+		const headerActions = header.createDiv({ cls: 'glean-review-header-actions' });
+		const speak = headerActions.createEl('button', {
+			cls: 'glean-review-icon',
+			attr: { 'aria-label': '朗读', title: '朗读' },
+		});
+		setIcon(speak, 'volume-2');
+		speak.addEventListener('click', () => {
+			void this.plugin.speakWord(card.lemma);
+		});
+		const openNote = headerActions.createEl('button', {
 			cls: 'glean-review-icon',
 			attr: { 'aria-label': '打开这张卡', title: '打开这张卡' },
 		});

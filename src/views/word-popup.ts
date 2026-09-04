@@ -1,6 +1,8 @@
+import { setIcon } from 'obsidian';
 import type { DictionaryLookup } from '../dictionary';
 import type { WordStatus } from '../lexicon/note';
 import type { SaveWordResult } from '../lexicon/store';
+import { stopSpeech } from '../speak/tts';
 
 export interface WordLookupContext {
 	lookupId: number;
@@ -11,6 +13,11 @@ export interface WordLookupContext {
 	lookup?: DictionaryLookup | null;
 	inLexicon?: boolean;
 	status?: WordStatus;
+	/**
+	 * Prefer a media clip when one exists (listen view). Return true if the
+	 * host handled playback so the popover does not also fire system TTS.
+	 */
+	onSpeak?: (lookup: DictionaryLookup | null) => Promise<boolean>;
 	onDismiss: (lookupId: number) => void;
 	onSave: (lookup: DictionaryLookup | null) => Promise<SaveWordResult>;
 	onRemove: (lookup: DictionaryLookup | null) => Promise<boolean>;
@@ -105,6 +112,7 @@ export class GleanWordPopover {
 		if (!context && !this.popoverEl) {
 			return;
 		}
+		stopSpeech();
 		this.removeListeners?.();
 		this.removeListeners = null;
 		this.popoverEl?.remove();
@@ -140,9 +148,24 @@ export class GleanWordPopover {
 		});
 		kicker.setAttribute('aria-hidden', 'true');
 		const title = popover.createDiv({ cls: 'glean-word-popover-heading' });
-		title.createEl('h2', {
+		const titleRow = title.createDiv({ cls: 'glean-word-popover-title-row' });
+		titleRow.createEl('h2', {
 			cls: 'glean-word-popover-title',
 			text: context.word,
+		});
+		const speakButton = titleRow.createEl('button', {
+			cls: 'glean-word-popover-speak clickable-icon',
+			attr: {
+				type: 'button',
+				'aria-label': '朗读',
+				title: '朗读',
+			},
+		});
+		setIcon(speakButton, 'volume-2');
+		speakButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.speak();
 		});
 		if (context.lookup?.entry && context.lookup.match !== 'direct') {
 			title.createSpan({
@@ -251,6 +274,18 @@ export class GleanWordPopover {
 		saveButton.addEventListener('click', () => {
 			void this.save();
 		});
+	}
+
+	private async speak(): Promise<void> {
+		const context = this.context;
+		if (!context?.onSpeak) {
+			return;
+		}
+		try {
+			await context.onSpeak(context.lookup ?? null);
+		} catch {
+			// Host surfaces a Notice; leave the popover open.
+		}
 	}
 
 	private async openNote(): Promise<void> {

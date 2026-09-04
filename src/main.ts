@@ -46,6 +46,7 @@ import { REVIEW_VIEW_TYPE, ReviewView } from './views/review';
 import type { ReviewCard } from './review/queue';
 import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
+import { speakWithTts, stopSpeech } from './speak/tts';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
 
@@ -402,6 +403,22 @@ export default class GleanPlugin extends Plugin {
 
 	async lookupWord(word: string): Promise<DictionaryLookup | null> {
 		return this.dictionary?.lookup(word) ?? null;
+	}
+
+	/**
+	 * System TTS for a lemma/surface. Listen view prefers a media clip and
+	 * only falls through here when word clocks are missing.
+	 */
+	async speakWord(text: string): Promise<void> {
+		try {
+			await speakWithTts(text, this.settings.speakAccent);
+		} catch (error) {
+			new Notice(error instanceof Error ? error.message : '朗读失败');
+		}
+	}
+
+	stopSpeaking(): void {
+		stopSpeech();
 	}
 
 	refreshReadingViews(): void {

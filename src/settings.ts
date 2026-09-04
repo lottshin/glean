@@ -18,6 +18,7 @@ import {
 	TranslationError,
 	type TranslationProvider,
 } from './translate/provider';
+import type { SpeakAccent } from './speak/tts';
 
 export interface GleanSettings {
 	wordsFolder: string;
@@ -34,6 +35,11 @@ export interface GleanSettings {
 	reviewDailyLimit: number;
 	/** Flip a card to 已掌握 once its interval passes the graduation mark. */
 	reviewAutoKnown: boolean;
+	/**
+	 * System TTS accent. `auto` lets the OS pick; there is no bundled audio —
+	 * quality depends on voices installed on the device.
+	 */
+	speakAccent: SpeakAccent;
 	translateEnabled: boolean;
 	translateProvider: TranslationProvider;
 	translateApiKey: string;
@@ -57,6 +63,7 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	readingHintRank: DEFAULT_READING_HINT_RANK,
 	reviewDailyLimit: 20,
 	reviewAutoKnown: true,
+	speakAccent: 'auto',
 	translateEnabled: false,
 	translateProvider: 'openai',
 	translateApiKey: '',
@@ -266,6 +273,21 @@ export class GleanSettingTab extends PluginSettingTab {
 							defaultValue: DEFAULT_SETTINGS.reviewAutoKnown,
 						},
 					},
+					{
+						name: '朗读口音',
+						desc: '查词、复习里的系统朗读用哪种英文。精听里若有词级时间戳，会优先播视频原声。没有安装英文语音包时可能听起来不对。',
+						aliases: ['TTS', '发音', '朗读'],
+						control: {
+							type: 'dropdown',
+							key: 'speakAccent',
+							defaultValue: DEFAULT_SETTINGS.speakAccent,
+							options: {
+								auto: '系统默认',
+								'en-US': '美式',
+								'en-GB': '英式',
+							},
+						},
+					},
 				],
 			},
 			{
@@ -392,6 +414,13 @@ export class GleanSettingTab extends PluginSettingTab {
 		if (key === 'reviewAutoKnown') {
 			this.plugin.settings.reviewAutoKnown = value === true;
 			await this.plugin.saveSettings();
+			return;
+		}
+		if (key === 'speakAccent') {
+			if (value === 'auto' || value === 'en-US' || value === 'en-GB') {
+				this.plugin.settings.speakAccent = value;
+				await this.plugin.saveSettings();
+			}
 			return;
 		}
 		if (key === 'youtubeReceiverEnabled') {
@@ -589,6 +618,27 @@ export class GleanSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName('朗读口音')
+			.setDesc(
+				'查词、复习里的系统朗读用哪种英文。精听里若有词级时间戳，会优先播视频原声。',
+			)
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOptions({
+						auto: '系统默认',
+						'en-US': '美式',
+						'en-GB': '英式',
+					})
+					.setValue(this.plugin.settings.speakAccent)
+					.onChange(async (value) => {
+						if (value === 'auto' || value === 'en-US' || value === 'en-GB') {
+							this.plugin.settings.speakAccent = value;
+							await this.plugin.saveSettings();
+						}
+					});
+			});
 
 		new Setting(containerEl).setName('浏览器采集接收端').setHeading();
 

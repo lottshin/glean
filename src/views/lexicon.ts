@@ -269,6 +269,20 @@ export class LexiconView extends ItemView {
 		});
 
 		const controls = item.createDiv({ cls: 'glean-lexicon-controls' });
+		const speak = controls.createEl('button', {
+			cls: 'glean-lexicon-speak clickable-icon',
+			attr: {
+				type: 'button',
+				'aria-label': `朗读 ${card.lemma}`,
+				title: '朗读',
+			},
+		});
+		setIcon(speak, 'volume-2');
+		speak.addEventListener('click', (event) => {
+			event.stopPropagation();
+			void this.plugin.speakWord(card.lemma);
+		});
+
 		const status = controls.createEl('select', {
 			cls: `glean-lexicon-status is-${card.status}`,
 			attr: { 'aria-label': `${card.lemma} 的学习状态` },

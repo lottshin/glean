@@ -157,6 +157,12 @@ export class ReadingMode {
 			inLexicon: initialCard !== null,
 			status: initialCard?.status,
 			onDismiss: () => undefined,
+			onSpeak: async (lookup) => {
+				await this.plugin.speakWord(
+					lookup?.lemma ?? lookup?.surface ?? word,
+				);
+				return true;
+			},
 			onSave: async (lookup) => {
 				const resolved = lookup ?? {
 					surface: word,
@@ -280,6 +286,9 @@ export class ReadingMode {
 					new Notice(error instanceof Error ? error.message : '生词保存失败');
 					throw error;
 				}
+			},
+			onSpeakWord: async (item) => {
+				await this.plugin.speakWord(item.lemma);
 			},
 			onTranslate: (passage) => this.plugin.translatePassage(passage),
 			onClose: () => this.onPassagePanelClosed(file),

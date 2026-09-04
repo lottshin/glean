@@ -49,6 +49,8 @@ import {
 } from '../import/receiver';
 import { youtubeSourcePath } from '../youtube/id';
 import { isGleanSegmentedSubtitles, refineCaptionCues } from '../youtube/vtt';
+import { stopSpeech } from '../speak/tts';
+import { wordClipWindow } from '../speak/word-clip';
 import { GleanWordPopover } from './word-popup';
 export const LISTEN_VIEW_TYPE = 'glean-listen';
 
@@ -169,6 +171,7 @@ export class ListenView extends ItemView {
 	private lookupSequence = 0;
 	private lookupOpenTimer: number | null = null;
 	private wordPopover = new GleanWordPopover();
+	private speakClipTimer: number | null = null;
 	private focusEl: HTMLElement | null = null;
 	private focusTextEl: HTMLElement | null = null;
 	private focusMetaEl: HTMLElement | null = null;
@@ -1124,6 +1127,13 @@ export class ListenView extends ItemView {
 			inLexicon: initialCard !== null,
 			status: initialCard?.status,
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
+			onSpeak: async (lookup) => {
+				const surface =
+					lookup?.lemma ??
+					lookup?.surface ??
+					word;
+				return this.speakLookup(cue, wordIndex, surface);
+			},
 			onSave: async (lookup) => {
 				if (!sourcePath) {
 					throw new Error('没有来源媒体');
@@ -1680,6 +1690,45 @@ export class ListenView extends ItemView {
 		}
 	}
 
+	private clearSpeakClipTimer(): void {
+		if (this.speakClipTimer !== null) {
+			window.clearTimeout(this.speakClipTimer);
+			this.speakClipTimer = null;
+		}
+	}
+
+	/**
+	 * Prefer the media clip around this subtitle word; fall back to system TTS
+	 * when the cue has no usable window (empty / broken timings).
+	 */
+	private async speakLookup(
+		cue: Cue,
+		wordIndex: number,
+		text: string,
+	): Promise<boolean> {
+		stopSpeech();
+		const clip = wordClipWindow(cue, wordIndex);
+		if (!clip) {
+			await this.plugin.speakWord(text);
+			return true;
+		}
+		this.clearSpeakClipTimer();
+		this.clearAdvanceTimer();
+		// A word clip is not sentence practice — drop the stop booking so the
+		// onTimeUpdate path does not pause us mid-clip.
+		this.sentenceMode = false;
+		this.sentenceArmed = false;
+		this.source.seekTo(clip.start);
+		this.source.play();
+		const rate = this.source.getPlaybackRate() || 1;
+		const ms = Math.max(120, ((clip.end - clip.start) / rate) * 1000);
+		this.speakClipTimer = window.setTimeout(() => {
+			this.speakClipTimer = null;
+			this.source.pause();
+		}, ms);
+		return true;
+	}
+
 	private replayCurrent(): void {
 		const cue = this.cues[this.activeIndex] ?? this.cues[0];
 		if (!cue) {
@@ -1707,6 +1756,7 @@ export class ListenView extends ItemView {
 
 	private playSentence(cue: Cue): void {
 		this.clearAdvanceTimer();
+		this.clearSpeakClipTimer();
 		this.sentenceMode = true;
 		this.sentenceArmed = false;
 		this.sentenceStart = cue.start;
@@ -1894,8 +1944,10 @@ export class ListenView extends ItemView {
 
 	private teardown(): void {
 		this.clearAdvanceTimer();
+		this.clearSpeakClipTimer();
 		this.clearSentenceStop();
 		this.clearLookupOpenTimer();
+		this.plugin.stopSpeaking();
 		this.wordPopover.destroy();
 		for (const u of this.unsubs) {
 			u();
