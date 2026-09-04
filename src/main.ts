@@ -42,6 +42,7 @@ import {
 	LEXICON_VIEW_TYPE,
 	LexiconView,
 } from './views/lexicon';
+import { parseBilibiliSourcePath } from './bilibili/id';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
 
@@ -537,6 +538,16 @@ export default class GleanPlugin extends Plugin {
 				session.subtitlePath,
 				session.title,
 			);
+			return true;
+		}
+		const bvid = parseBilibiliSourcePath(sourcePath);
+		if (bvid) {
+			const session = this.findBilibiliSession(bvid);
+			if (!session) {
+				new Notice(`找不到 B 站会话：${bvid}`);
+				return false;
+			}
+			await this.openBilibili(session);
 			return true;
 		}
 		const exact = this.app.vault.getAbstractFileByPath(sourcePath);
@@ -1046,6 +1057,16 @@ export default class GleanPlugin extends Plugin {
 		return null;
 	}
 
+	private findBilibiliSession(bvid: string): BilibiliSession | null {
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			const session = this.bilibiliSessionFromFile(file);
+			if (session?.bvid === bvid) {
+				return session;
+			}
+		}
+		return null;
+	}
+
 	private async openGleanLink(parameters: Record<string, string>): Promise<void> {
 		const target = parseGleanProtocol(parameters);
 		if (!target) {
@@ -1064,6 +1085,15 @@ export default class GleanPlugin extends Plugin {
 				session.title,
 				target.time,
 			);
+			return;
+		}
+		if (target.kind === 'bilibili' && target.bvid) {
+			const session = this.findBilibiliSession(target.bvid);
+			if (!session) {
+				new Notice(`找不到 B 站会话：${target.bvid}`);
+				return;
+			}
+			await this.openBilibili(session, target.time);
 			return;
 		}
 		const file = this.resolveGleanSource(target.sourcePath);

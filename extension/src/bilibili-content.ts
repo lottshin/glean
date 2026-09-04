@@ -5,6 +5,7 @@ import {
 import type { BilibiliMediaTrack } from '../../src/bilibili/playurl';
 import {
 	bilibiliSyncRefusalMessage,
+	isEnglishLanguage,
 	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';

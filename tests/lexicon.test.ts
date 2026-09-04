@@ -63,6 +63,28 @@ describe('word note', () => {
 		);
 	});
 
+	it('writes a Bilibili watch URL instead of a vault wikilink', () => {
+		const note = createWordNote({
+			lookup,
+			context: {
+				sentence: 'Imagine you live in a remote village.',
+				sourcePath: 'bilibili:BV1xD8q6ZEDR',
+				sourceName: '万亿美元悖论',
+				time: 4.2,
+				timeLabel: '00:04',
+			},
+			date: '2026-09-04',
+			uid: 'glean-bili-1',
+		});
+		expect(note).toContain(
+			'[00:04](obsidian://glean?src=bilibili%3ABV1xD8q6ZEDR&t=4.2)',
+		);
+		expect(note).toContain(
+			'[万亿美元悖论](https://www.bilibili.com/video/BV1xD8q6ZEDR)',
+		);
+		expect(note).not.toContain('[[bilibili:BV1xD8q6ZEDR]]');
+	});
+
 	it('recognizes comments on Glean frontmatter and updates only status', () => {
 		const content = [
 			'---',
@@ -430,6 +452,24 @@ describe('Glean protocol', () => {
 			time: 42,
 			kind: 'youtube',
 			videoId: 'dQw4w9WgXcQ',
+		});
+	});
+
+	it('recognizes Bilibili sources without treating them as local files', () => {
+		expect(
+			parseGleanProtocol({ src: 'bilibili:BV1xD8q6ZEDR', t: '4.2' }),
+		).toEqual({
+			sourcePath: 'bilibili:BV1xD8q6ZEDR',
+			time: 4.2,
+			kind: 'bilibili',
+			bvid: 'BV1xD8q6ZEDR',
+		});
+		expect(
+			parseGleanProtocol({ src: 'bilibili:not-a-bv', t: '1' }),
+		).toEqual({
+			sourcePath: 'bilibili:not-a-bv',
+			time: 1,
+			kind: 'local',
 		});
 	});
 

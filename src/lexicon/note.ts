@@ -1,3 +1,4 @@
+import { bilibiliWatchUrl } from '../bilibili/id';
 import type { DictionaryLookup } from '../dictionary';
 
 export type WordStatus = 'new' | 'learning' | 'known' | 'ignored';
@@ -26,14 +27,24 @@ function markdownText(value: string): string {
 	return compact.length > 300 ? `${compact.slice(0, 297)}…` : compact;
 }
 
+function markdownLinkLabel(value: string): string {
+	return value.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+}
+
 export function sourceLink(context: WordContext): string {
 	if (context.sourcePath.startsWith('youtube:')) {
 		const videoId = context.sourcePath.slice('youtube:'.length);
-		const label = (context.sourceName?.trim() || `YouTube · ${videoId}`)
-			.replace(/\\/g, '\\\\')
-			.replace(/\[/g, '\\[')
-			.replace(/\]/g, '\\]');
+		const label = markdownLinkLabel(
+			context.sourceName?.trim() || `YouTube · ${videoId}`,
+		);
 		return `[${label}](https://youtu.be/${videoId})`;
+	}
+	if (context.sourcePath.startsWith('bilibili:')) {
+		const bvid = context.sourcePath.slice('bilibili:'.length);
+		const label = markdownLinkLabel(
+			context.sourceName?.trim() || `B 站 · ${bvid}`,
+		);
+		return `[${label}](${bilibiliWatchUrl(bvid)})`;
 	}
 	return `[[${context.sourcePath}]]`;
 }

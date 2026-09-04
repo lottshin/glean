@@ -1,10 +1,12 @@
+import { parseBilibiliSourcePath } from '../bilibili/id';
 import { parseYouTubeSourcePath } from '../youtube/id';
 
 export interface GleanProtocolTarget {
 	sourcePath: string;
 	time: number;
-	kind: 'local' | 'youtube';
+	kind: 'local' | 'youtube' | 'bilibili';
 	videoId?: string;
+	bvid?: string;
 }
 
 export function parseGleanProtocol(parameters: Record<string, string>): GleanProtocolTarget | null {
@@ -14,7 +16,12 @@ export function parseGleanProtocol(parameters: Record<string, string>): GleanPro
 		return null;
 	}
 	const videoId = parseYouTubeSourcePath(sourcePath);
-	return videoId
-		? { sourcePath, time, kind: 'youtube', videoId }
-		: { sourcePath, time, kind: 'local' };
+	if (videoId) {
+		return { sourcePath, time, kind: 'youtube', videoId };
+	}
+	const bvid = parseBilibiliSourcePath(sourcePath);
+	if (bvid) {
+		return { sourcePath, time, kind: 'bilibili', bvid };
+	}
+	return { sourcePath, time, kind: 'local' };
 }

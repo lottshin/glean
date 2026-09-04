@@ -12,6 +12,7 @@ import {
 } from '../lexicon/catalog';
 import type { WordStatus } from '../lexicon/note';
 import type GleanPlugin from '../main';
+import { parseBilibiliVideoId, bilibiliSourcePath } from '../bilibili/id';
 import { parseYouTubeVideoId, youtubeSourcePath } from '../youtube/id';
 
 export const LEXICON_VIEW_TYPE = 'glean-lexicon';
@@ -407,13 +408,21 @@ export class LexiconView extends ItemView {
 			return wiki[1].trim();
 		}
 		const markdown = trimmed.match(/^\[[^\]]*\]\((https?:\/\/[^)]+)\)$/);
-		const videoId = parseYouTubeVideoId(markdown?.[1] ?? trimmed);
-		return videoId ? youtubeSourcePath(videoId) : trimmed;
+		const url = markdown?.[1] ?? trimmed;
+		const youtubeId = parseYouTubeVideoId(url);
+		if (youtubeId) {
+			return youtubeSourcePath(youtubeId);
+		}
+		const bvid = parseBilibiliVideoId(url);
+		return bvid ? bilibiliSourcePath(bvid) : trimmed;
 	}
 
 	private sourceLabel(path: string): string {
 		if (path.startsWith('youtube:')) {
 			return `YouTube · ${path.slice('youtube:'.length)}`;
+		}
+		if (path.startsWith('bilibili:')) {
+			return `B 站 · ${path.slice('bilibili:'.length)}`;
 		}
 		return path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? path;
 	}
