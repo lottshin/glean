@@ -822,8 +822,9 @@ button.glean-btn.glean-btn-primary:disabled {
 
 .glean-word-popover-title-row {
 	display: flex;
-	align-items: center;
-	gap: 6px;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 8px;
 	width: 100%;
 }
 
@@ -832,29 +833,37 @@ button.glean-btn.glean-btn-primary:disabled {
 	font-size: 20px;
 }
 
-.glean-word-popover-speak-group {
-	display: inline-flex;
-	gap: 4px;
-	margin-left: 2px;
+.glean-word-popover-phonetic-row {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-top: 4px;
 }
 
-.glean-word-popover-speak {
-	min-width: 28px;
-	height: 24px;
-	padding: 0 7px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
-	background: var(--background-primary);
+.glean-speak-links {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+button.glean-speak-link {
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent;
 	box-shadow: none;
-	color: var(--text-muted);
+	color: var(--text-accent);
 	font-size: 12px;
-	line-height: 1;
+	line-height: 1.2;
 	cursor: pointer;
 }
 
-.glean-word-popover-speak:hover {
-	border-color: var(--interactive-accent);
-	color: var(--text-accent);
+button.glean-speak-link:hover {
+	color: var(--text-accent-hover, var(--text-accent));
+	text-decoration: underline;
+	background: transparent;
 }
 
 .glean-word-popover-lemma,
@@ -1095,30 +1104,6 @@ button.glean-word-popover-remove:hover {
 .glean-passage-phonetic {
 	color: var(--text-muted);
 	font-size: 11px;
-}
-
-.glean-passage-speak-group {
-	display: inline-flex;
-	gap: 3px;
-}
-
-.glean-passage-speak {
-	min-width: 24px;
-	height: 20px;
-	padding: 0 5px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 5px;
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-faint);
-	font-size: 11px;
-	line-height: 1;
-	cursor: pointer;
-}
-
-.glean-passage-speak:hover {
-	border-color: var(--interactive-accent);
-	color: var(--text-accent);
 }
 
 .glean-passage-add {
@@ -1461,31 +1446,6 @@ button.glean-word-popover-remove:hover {
 	color: var(--text-faint);
 }
 
-.glean-lexicon-view .glean-lexicon-speak-group {
-	display: inline-flex;
-	gap: 2px;
-}
-
-.glean-lexicon-view .glean-lexicon-speak {
-	min-width: 22px;
-	height: 22px;
-	margin: 0;
-	padding: 0 5px;
-	border: 1px solid transparent;
-	border-radius: 5px;
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-faint);
-	font-size: 11px;
-	line-height: 1;
-	cursor: pointer;
-}
-
-.glean-lexicon-view .glean-lexicon-speak:hover {
-	border-color: var(--background-modifier-border);
-	color: var(--text-accent);
-}
-
 .glean-lexicon-view .glean-lexicon-remove {
 	width: 24px;
 	height: 24px;
@@ -1636,26 +1596,7 @@ button.glean-word-popover-remove:hover {
 .glean-review-header-actions {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-}
-
-.glean-review-speak {
-	min-width: 26px;
-	height: 24px;
-	padding: 0 7px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-muted);
-	font-size: 12px;
-	line-height: 1;
-	cursor: pointer;
-}
-
-.glean-review-speak:hover {
-	border-color: var(--interactive-accent);
-	color: var(--text-accent);
+	gap: 10px;
 }
 
 .glean-review-icon {

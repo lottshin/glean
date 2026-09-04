@@ -15,7 +15,7 @@ export interface SpeakVoiceLike {
 	default?: boolean;
 }
 
-/** Prefer a local English voice matching the accent; fall back gracefully. */
+/** Prefer a local English voice matching the accent; never cross accents. */
 export function pickEnglishVoice<T extends SpeakVoiceLike>(
 	voices: readonly T[],
 	accent: SpeakAccent,
@@ -30,20 +30,18 @@ export function pickEnglishVoice<T extends SpeakVoiceLike>(
 		pool.find(predicate) ?? null;
 
 	if (accent === 'en-GB') {
+		// Returning a US voice here would make 美/英 identical on machines that
+		// only shipped one English pack.
 		return (
 			prefer((voice) => /^en-GB/i.test(voice.lang)) ??
-			prefer((voice) => /british|uk english|daniel|serena|martha/i.test(voice.name)) ??
-			prefer((voice) => voice.localService !== false) ??
-			pool[0] ??
+			prefer((voice) => /british|uk english|\bdaniel\b|\bserena\b|\bmartha\b/i.test(voice.name)) ??
 			null
 		);
 	}
 	if (accent === 'en-US') {
 		return (
 			prefer((voice) => /^en-US/i.test(voice.lang)) ??
-			prefer((voice) => /american|us english|samantha|alex|victoria/i.test(voice.name)) ??
-			prefer((voice) => voice.localService !== false) ??
-			pool[0] ??
+			prefer((voice) => /american|us english|\bsamantha\b|\balex\b|\bvictoria\b/i.test(voice.name)) ??
 			null
 		);
 	}
@@ -100,10 +98,10 @@ export async function speakWithTts(
 	const voice = pickEnglishVoice(voices, accent);
 	if (voice) {
 		utter.voice = voice;
-		if (!utter.lang.startsWith('en')) {
-			utter.lang = voice.lang;
-		}
+		utter.lang = voice.lang || utter.lang;
 	}
+	// No matching installed voice: leave `voice` unset and rely on `lang`.
+	// Binding a US voice while asking for en-GB is what made both buttons identical.
 
 	await new Promise<void>((resolve, reject) => {
 		utter.onend = () => resolve();

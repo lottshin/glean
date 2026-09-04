@@ -61,10 +61,27 @@ function pickPreferred(
 	if (hits.length === 0) {
 		return null;
 	}
-	return [...hits].sort(
+	const ranked = [...hits].sort(
 		(left, right) =>
 			scoreAccent(right.accentHint, accent) - scoreAccent(left.accentHint, accent),
-	)[0] ?? null;
+	);
+	if (accent === 'en-US' || accent === 'en-GB') {
+		// Card buttons ask for a specific accent. Playing the other one makes
+		// 美 and 英 sound identical — refuse and let the caller fall back to TTS.
+		const exact = ranked.find((hit) => hit.accentHint === accent);
+		if (exact) {
+			return exact;
+		}
+		const unknown = ranked.filter((hit) => hit.accentHint === null);
+		const conflicting = ranked.some(
+			(hit) => hit.accentHint !== null && hit.accentHint !== accent,
+		);
+		if (!conflicting && unknown[0]) {
+			return unknown[0];
+		}
+		return null;
+	}
+	return ranked[0] ?? null;
 }
 
 /** Parse Free Dictionary API JSON into playable audio URLs. */
@@ -147,24 +164,38 @@ export function parseWiktionaryImageTitles(payload: unknown): string[] {
 }
 
 export function parseWiktionaryFileUrl(payload: unknown): string | null {
+	return parseWiktionaryFileHits(payload)[0]?.url ?? null;
+}
+
+export function parseWiktionaryFileHits(payload: unknown): CommunityAudioHit[] {
 	if (!payload || typeof payload !== 'object') {
-		return null;
+		return [];
 	}
 	const pages = (payload as { query?: { pages?: Record<string, unknown> } }).query
 		?.pages;
 	if (!pages) {
-		return null;
+		return [];
 	}
-	for (const page of Object.values(pages)) {
-		if (!page || typeof page !== 'object') {
+	const hits: CommunityAudioHit[] = [];
+	for (const [key, page] of Object.entries(pages)) {
+		if (!page || typeof page !== 'object' || key.startsWith('-')) {
 			continue;
 		}
+		const title =
+			typeof (page as { title?: unknown }).title === 'string'
+				? (page as { title: string }).title
+				: '';
 		const info = (page as { imageinfo?: Array<{ url?: string }> }).imageinfo?.[0];
-		if (info?.url) {
-			return info.url;
+		if (!info?.url) {
+			continue;
 		}
+		hits.push({
+			url: info.url,
+			source: 'wiktionary',
+			accentHint: accentFromHint(`${title} ${info.url}`),
+		});
 	}
-	return null;
+	return hits;
 }
 
 /** Guess common Commons filenames before scanning the whole page. */
@@ -253,13 +284,9 @@ export async function resolveWiktionaryAudio(
 
 	const direct = await fetchJson(imageInfoUrl(preferredFirst));
 	if (direct.status >= 200 && direct.status < 300) {
-		const url = parseWiktionaryFileUrl(direct.json);
-		if (url) {
-			return {
-				url,
-				source: 'wiktionary',
-				accentHint: accentFromHint(url) ?? accentFromHint(preferredFirst.join(' ')),
-			};
+		const hit = pickPreferred(parseWiktionaryFileHits(direct.json), accent);
+		if (hit) {
+			return hit;
 		}
 	}
 
@@ -280,15 +307,7 @@ export async function resolveWiktionaryAudio(
 	if (info.status < 200 || info.status >= 300) {
 		throw new Error(`Wiktionary 文件查询返回 ${info.status}`);
 	}
-	const url = parseWiktionaryFileUrl(info.json);
-	if (!url) {
-		return null;
-	}
-	return {
-		url,
-		source: 'wiktionary',
-		accentHint: accentFromHint(url) ?? accentFromHint(ranked[0] ?? ''),
-	};
+	return pickPreferred(parseWiktionaryFileHits(info.json), accent);
 }
 
 export async function resolveCommunityAudio(

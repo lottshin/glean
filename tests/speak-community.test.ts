@@ -39,6 +39,21 @@ describe('free dictionary parsing', () => {
 		expect(hit?.url).toContain('_us_');
 	});
 
+	it('refuses the wrong accent instead of making 美/英 identical', () => {
+		const onlyUs = [
+			{
+				word: 'color',
+				phonetics: [
+					{
+						audio: 'https://example.test/color--_us_1.mp3',
+					},
+				],
+			},
+		];
+		expect(parseFreeDictionaryAudio(onlyUs, 'en-GB')).toBeNull();
+		expect(parseFreeDictionaryAudio(onlyUs, 'en-US')?.url).toContain('_us_');
+	});
+
 	it('returns null when every phonetic is silent', () => {
 		expect(
 			parseFreeDictionaryAudio([{ word: 'x', phonetics: [{ audio: '' }] }], 'auto'),

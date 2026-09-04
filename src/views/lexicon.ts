@@ -269,18 +269,18 @@ export class LexiconView extends ItemView {
 		});
 
 		const controls = item.createDiv({ cls: 'glean-lexicon-controls' });
-		const speakGroup = controls.createDiv({ cls: 'glean-lexicon-speak-group' });
+		const speakGroup = controls.createDiv({ cls: 'glean-speak-links' });
 		for (const [accent, label] of [
 			['en-US', '美'],
 			['en-GB', '英'],
 		] as const) {
 			const speak = speakGroup.createEl('button', {
-				cls: 'glean-lexicon-speak',
+				cls: 'glean-speak-link',
 				text: label,
 				attr: {
 					type: 'button',
-					'aria-label': `${label === '美' ? '美式' : '英式'}朗读 ${card.lemma}`,
-					title: label === '美' ? '美式发音' : '英式发音',
+					'aria-label': `${label === '美' ? '美音' : '英音'} ${card.lemma}`,
+					title: label === '美' ? '美音' : '英音',
 				},
 			});
 			speak.addEventListener('click', (event) => {

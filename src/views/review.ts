@@ -223,15 +223,15 @@ export class ReviewView extends ItemView {
 		});
 		const headerActions = header.createDiv({ cls: 'glean-review-header-actions' });
 		for (const [accent, label] of [
-			['en-US', '美'],
-			['en-GB', '英'],
+			['en-US', '美音'],
+			['en-GB', '英音'],
 		] as const) {
 			const speak = headerActions.createEl('button', {
-				cls: 'glean-review-speak',
+				cls: 'glean-speak-link',
 				text: label,
 				attr: {
-					'aria-label': label === '美' ? '美式发音' : '英式发音',
-					title: label === '美' ? '美式发音' : '英式发音',
+					'aria-label': label,
+					title: label,
 				},
 			});
 			speak.addEventListener('click', () => {

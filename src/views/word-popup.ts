@@ -155,9 +155,6 @@ export class GleanWordPopover {
 			cls: 'glean-word-popover-title',
 			text: context.word,
 		});
-		const speakGroup = titleRow.createDiv({ cls: 'glean-word-popover-speak-group' });
-		this.addSpeakButton(speakGroup, 'en-US', '美');
-		this.addSpeakButton(speakGroup, 'en-GB', '英');
 		if (context.lookup?.entry && context.lookup.match !== 'direct') {
 			title.createSpan({
 				cls: 'glean-word-popover-lemma',
@@ -167,24 +164,29 @@ export class GleanWordPopover {
 
 		if (context.lookup === undefined) {
 			popover.createDiv({ cls: 'glean-word-popover-pending', text: '正在查询…' });
+			this.renderSpeakLinks(popover);
 		} else if (context.lookup === null) {
 			popover.createDiv({
 				cls: 'glean-word-popover-pending',
 				text: '未安装离线词典，请在 Glean 设置中选择词典目录。',
 			});
+			this.renderSpeakLinks(popover);
 		} else if (!context.lookup.entry) {
 			popover.createDiv({
 				cls: 'glean-word-popover-pending',
 				text: '离线词典未收录这个词。',
 			});
+			this.renderSpeakLinks(popover);
 		} else {
 			const entry = context.lookup.entry;
+			const phoneticRow = popover.createDiv({ cls: 'glean-word-popover-phonetic-row' });
 			if (entry.phonetic) {
-				popover.createDiv({
+				phoneticRow.createSpan({
 					cls: 'glean-word-popover-phonetic',
 					text: `/${entry.phonetic.replace(/^\/|\/$/g, '')}/`,
 				});
 			}
+			this.renderSpeakLinks(phoneticRow);
 			if (entry.pos) {
 				popover.createDiv({ cls: 'glean-word-popover-pos', text: entry.pos });
 			}
@@ -267,18 +269,24 @@ export class GleanWordPopover {
 		});
 	}
 
+	private renderSpeakLinks(parent: HTMLElement): void {
+		const group = parent.createDiv({ cls: 'glean-speak-links' });
+		this.addSpeakButton(group, 'en-US', '美音');
+		this.addSpeakButton(group, 'en-GB', '英音');
+	}
+
 	private addSpeakButton(
 		parent: HTMLElement,
 		accent: 'en-US' | 'en-GB',
 		label: string,
 	): void {
 		const button = parent.createEl('button', {
-			cls: 'glean-word-popover-speak',
+			cls: 'glean-speak-link',
 			text: label,
 			attr: {
 				type: 'button',
-				'aria-label': label === '美' ? '美式发音' : '英式发音',
-				title: label === '美' ? '美式发音' : '英式发音',
+				'aria-label': label,
+				title: label,
 			},
 		});
 		button.addEventListener('click', (event) => {

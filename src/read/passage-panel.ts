@@ -235,18 +235,18 @@ export class GleanPassagePanel {
 			});
 		}
 
-		const speak = head.createDiv({ cls: 'glean-passage-speak-group' });
+		const speak = head.createDiv({ cls: 'glean-speak-links' });
 		for (const [accent, label] of [
-			['en-US', '美'],
-			['en-GB', '英'],
+			['en-US', '美音'],
+			['en-GB', '英音'],
 		] as const) {
 			const button = speak.createEl('button', {
-				cls: 'glean-passage-speak',
+				cls: 'glean-speak-link',
 				text: label,
 				attr: {
 					type: 'button',
-					'aria-label': label === '美' ? '美式发音' : '英式发音',
-					title: label === '美' ? '美式发音' : '英式发音',
+					'aria-label': label,
+					title: label,
 				},
 			});
 			button.addEventListener('click', () => {

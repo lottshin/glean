@@ -49,8 +49,6 @@ import {
 } from '../import/receiver';
 import { youtubeSourcePath } from '../youtube/id';
 import { isGleanSegmentedSubtitles, refineCaptionCues } from '../youtube/vtt';
-import { stopAllSpeech } from '../speak/player';
-import { wordClipWindow } from '../speak/word-clip';
 import { GleanWordPopover } from './word-popup';
 export const LISTEN_VIEW_TYPE = 'glean-listen';
 
@@ -1698,35 +1696,16 @@ export class ListenView extends ItemView {
 	}
 
 	/**
-	 * Prefer the media clip around this subtitle word; fall back to system TTS
-	 * when the cue has no usable window (empty / broken timings).
+	 * 美/英 ask for a specific accent. Do not hijack them with the video clip —
+	 * that made both buttons play the same original take.
 	 */
 	private async speakLookup(
-		cue: Cue,
-		wordIndex: number,
+		_cue: Cue,
+		_wordIndex: number,
 		text: string,
 		accent: 'en-US' | 'en-GB' = 'en-US',
 	): Promise<boolean> {
-		stopAllSpeech();
-		const clip = wordClipWindow(cue, wordIndex);
-		if (!clip) {
-			await this.plugin.speakWord(text, accent);
-			return true;
-		}
-		this.clearSpeakClipTimer();
-		this.clearAdvanceTimer();
-		// A word clip is not sentence practice — drop the stop booking so the
-		// onTimeUpdate path does not pause us mid-clip.
-		this.sentenceMode = false;
-		this.sentenceArmed = false;
-		this.source.seekTo(clip.start);
-		this.source.play();
-		const rate = this.source.getPlaybackRate() || 1;
-		const ms = Math.max(120, ((clip.end - clip.start) / rate) * 1000);
-		this.speakClipTimer = window.setTimeout(() => {
-			this.speakClipTimer = null;
-			this.source.pause();
-		}, ms);
+		await this.plugin.speakWord(text, accent);
 		return true;
 	}
 

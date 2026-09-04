@@ -32,10 +32,22 @@ describe('pickEnglishVoice', () => {
 		expect(pickEnglishVoice([], 'auto')).toBeNull();
 	});
 
-	it('falls back to any voice when none are English', () => {
+	it('does not borrow a US voice when British was requested', () => {
 		expect(
-			pickEnglishVoice([{ lang: 'zh-CN', name: 'Tingting' }], 'en-US')?.name,
-		).toBe('Tingting');
+			pickEnglishVoice(
+				[
+					{ lang: 'en-US', name: 'Samantha', localService: true },
+					{ lang: 'zh-CN', name: 'Tingting', localService: true },
+				],
+				'en-GB',
+			),
+		).toBeNull();
+	});
+
+	it('does not fall back to a non-English voice for an explicit accent', () => {
+		expect(
+			pickEnglishVoice([{ lang: 'zh-CN', name: 'Tingting' }], 'en-US'),
+		).toBeNull();
 	});
 });
 
