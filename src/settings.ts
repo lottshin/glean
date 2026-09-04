@@ -281,7 +281,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '朗读来源',
-						desc: '查词和复习用的发音。社区源免 Key、需联网，覆盖不均；失败时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
+						desc: '查词和复习用的发音。社区源免 Key、需联网，覆盖不均且可能限流；失败或限流时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
 						aliases: ['TTS', '发音', '朗读', 'Wiktionary'],
 						control: {
 							type: 'dropdown',

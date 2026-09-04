@@ -16,8 +16,80 @@ export interface CommunityAudioHit {
 	accentHint: 'en-US' | 'en-GB' | null;
 }
 
+export type CommunityLookup =
+	| { status: 'hit'; hit: CommunityAudioHit }
+	| { status: 'miss' }
+	| { status: 'rate-limited'; source: string };
+
 const FREE_DICTIONARY = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const WIKTIONARY_API = 'https://en.wiktionary.org/w/api.php';
+
+/** Wikimedia asks for a descriptive UA; anonymous bursts get 429 otherwise. */
+export const COMMUNITY_USER_AGENT =
+	'GleanObsidianPlugin/0.0.1 (English learning; pronunciation lookup)';
+
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const MISS_TTL_MS = 10 * 60 * 1000;
+const RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
+
+interface CacheEntry {
+	hit: CommunityAudioHit | null;
+	expires: number;
+}
+
+const resolutionCache = new Map<string, CacheEntry>();
+let rateLimitedUntil = 0;
+
+export function clearCommunityAudioCache(): void {
+	resolutionCache.clear();
+	rateLimitedUntil = 0;
+}
+
+function cacheKey(source: SpeakSource, lemma: string, accent: SpeakAccent): string {
+	return `${source}|${lemma}|${accent}`;
+}
+
+function readCache(
+	source: SpeakSource,
+	lemma: string,
+	accent: SpeakAccent,
+	now: number,
+): CommunityAudioHit | null | undefined {
+	const entry = resolutionCache.get(cacheKey(source, lemma, accent));
+	if (!entry) {
+		return undefined;
+	}
+	if (entry.expires <= now) {
+		resolutionCache.delete(cacheKey(source, lemma, accent));
+		return undefined;
+	}
+	return entry.hit;
+}
+
+function writeCache(
+	source: SpeakSource,
+	lemma: string,
+	accent: SpeakAccent,
+	hit: CommunityAudioHit | null,
+	now: number,
+): void {
+	resolutionCache.set(cacheKey(source, lemma, accent), {
+		hit,
+		expires: now + (hit ? CACHE_TTL_MS : MISS_TTL_MS),
+	});
+}
+
+function isRateLimited(now: number): boolean {
+	return now < rateLimitedUntil;
+}
+
+function markRateLimited(now: number): void {
+	rateLimitedUntil = Math.max(rateLimitedUntil, now + RATE_LIMIT_COOLDOWN_MS);
+}
+
+function isRateLimitStatus(status: number): boolean {
+	return status === 429 || status === 503;
+}
 
 function normalizeAudioUrl(value: string): string {
 	const trimmed = value.trim();
@@ -199,22 +271,29 @@ export function parseWiktionaryFileHits(payload: unknown): CommunityAudioHit[] {
 }
 
 /** Guess common Commons filenames before scanning the whole page. */
-export function wiktionaryCandidateFiles(word: string): string[] {
+export function wiktionaryCandidateFiles(
+	word: string,
+	accent: SpeakAccent = 'auto',
+): string[] {
 	const bare = word.trim().toLowerCase().replace(/[^a-z0-9'-]+/g, '');
 	if (!bare) {
 		return [];
 	}
-	const variants = [
-		`en-us-${bare}.ogg`,
-		`En-us-${bare}.ogg`,
-		`en-uk-${bare}.ogg`,
-		`En-uk-${bare}.ogg`,
-		`en-gb-${bare}.ogg`,
-		`En-gb-${bare}.ogg`,
-		`en-us-${bare}.mp3`,
-		`en-uk-${bare}.mp3`,
+	const us = [`File:en-us-${bare}.ogg`, `File:En-us-${bare}.ogg`, `File:en-us-${bare}.mp3`];
+	const gb = [
+		`File:en-uk-${bare}.ogg`,
+		`File:En-uk-${bare}.ogg`,
+		`File:en-gb-${bare}.ogg`,
+		`File:En-gb-${bare}.ogg`,
+		`File:en-uk-${bare}.mp3`,
 	];
-	return variants.map((name) => `File:${name}`);
+	if (accent === 'en-US') {
+		return us;
+	}
+	if (accent === 'en-GB') {
+		return gb;
+	}
+	return [...us, ...gb];
 }
 
 function imageInfoUrl(titles: string[]): string {
@@ -245,58 +324,61 @@ export async function resolveFreeDictionaryAudio(
 	word: string,
 	accent: SpeakAccent,
 	fetchJson: SpeakFetcher,
-): Promise<CommunityAudioHit | null> {
+): Promise<CommunityLookup> {
 	const lemma = word.trim().toLowerCase();
 	if (!lemma) {
-		return null;
+		return { status: 'miss' };
 	}
 	const response = await fetchJson(
 		`${FREE_DICTIONARY}/${encodeURIComponent(lemma)}`,
 	);
 	if (response.status === 404) {
-		return null;
+		return { status: 'miss' };
+	}
+	if (isRateLimitStatus(response.status)) {
+		return { status: 'rate-limited', source: 'Free Dictionary' };
 	}
 	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`Free Dictionary 返回 ${response.status}`);
+		return { status: 'miss' };
 	}
-	return parseFreeDictionaryAudio(response.json, accent);
+	const hit = parseFreeDictionaryAudio(response.json, accent);
+	return hit ? { status: 'hit', hit } : { status: 'miss' };
 }
 
 export async function resolveWiktionaryAudio(
 	word: string,
 	accent: SpeakAccent,
 	fetchJson: SpeakFetcher,
-): Promise<CommunityAudioHit | null> {
+): Promise<CommunityLookup> {
 	const lemma = word.trim().toLowerCase();
 	if (!lemma) {
-		return null;
+		return { status: 'miss' };
 	}
 
-	const candidates = wiktionaryCandidateFiles(lemma);
-	const preferredFirst =
-		accent === 'en-GB'
-			? [...candidates].sort((left, right) => {
-					const leftGb = /uk|gb/i.test(left) ? 0 : 1;
-					const rightGb = /uk|gb/i.test(right) ? 0 : 1;
-					return leftGb - rightGb;
-				})
-			: candidates;
-
-	const direct = await fetchJson(imageInfoUrl(preferredFirst));
+	// One narrow request for the accent the button asked for — scanning the
+	// whole page doubles the chance of a 429.
+	const candidates = wiktionaryCandidateFiles(lemma, accent);
+	const direct = await fetchJson(imageInfoUrl(candidates));
+	if (isRateLimitStatus(direct.status)) {
+		return { status: 'rate-limited', source: 'Wiktionary' };
+	}
 	if (direct.status >= 200 && direct.status < 300) {
 		const hit = pickPreferred(parseWiktionaryFileHits(direct.json), accent);
 		if (hit) {
-			return hit;
+			return { status: 'hit', hit };
 		}
 	}
 
 	const listed = await fetchJson(pageImagesUrl(lemma));
+	if (isRateLimitStatus(listed.status)) {
+		return { status: 'rate-limited', source: 'Wiktionary' };
+	}
 	if (listed.status < 200 || listed.status >= 300) {
-		throw new Error(`Wiktionary 返回 ${listed.status}`);
+		return { status: 'miss' };
 	}
 	const titles = parseWiktionaryImageTitles(listed.json);
 	if (titles.length === 0) {
-		return null;
+		return { status: 'miss' };
 	}
 	const ranked = [...titles].sort(
 		(left, right) =>
@@ -304,10 +386,14 @@ export async function resolveWiktionaryAudio(
 			scoreAccent(accentFromHint(left), accent),
 	);
 	const info = await fetchJson(imageInfoUrl(ranked));
-	if (info.status < 200 || info.status >= 300) {
-		throw new Error(`Wiktionary 文件查询返回 ${info.status}`);
+	if (isRateLimitStatus(info.status)) {
+		return { status: 'rate-limited', source: 'Wiktionary' };
 	}
-	return pickPreferred(parseWiktionaryFileHits(info.json), accent);
+	if (info.status < 200 || info.status >= 300) {
+		return { status: 'miss' };
+	}
+	const hit = pickPreferred(parseWiktionaryFileHits(info.json), accent);
+	return hit ? { status: 'hit', hit } : { status: 'miss' };
 }
 
 export async function resolveCommunityAudio(
@@ -315,12 +401,42 @@ export async function resolveCommunityAudio(
 	word: string,
 	accent: SpeakAccent,
 	fetchJson: SpeakFetcher,
-): Promise<CommunityAudioHit | null> {
+	now: number = Date.now(),
+): Promise<CommunityLookup> {
+	if (source === 'system') {
+		return { status: 'miss' };
+	}
+	const lemma = word.trim().toLowerCase();
+	if (!lemma) {
+		return { status: 'miss' };
+	}
+	if (isRateLimited(now)) {
+		return { status: 'rate-limited', source: sourceLabel(source) };
+	}
+	const cached = readCache(source, lemma, accent, now);
+	if (cached !== undefined) {
+		return cached ? { status: 'hit', hit: cached } : { status: 'miss' };
+	}
+
+	const result =
+		source === 'free-dictionary'
+			? await resolveFreeDictionaryAudio(lemma, accent, fetchJson)
+			: await resolveWiktionaryAudio(lemma, accent, fetchJson);
+
+	if (result.status === 'rate-limited') {
+		markRateLimited(now);
+		return result;
+	}
+	writeCache(source, lemma, accent, result.status === 'hit' ? result.hit : null, now);
+	return result;
+}
+
+function sourceLabel(source: SpeakSource): string {
 	if (source === 'free-dictionary') {
-		return resolveFreeDictionaryAudio(word, accent, fetchJson);
+		return 'Free Dictionary';
 	}
 	if (source === 'wiktionary') {
-		return resolveWiktionaryAudio(word, accent, fetchJson);
+		return 'Wiktionary';
 	}
-	return null;
+	return '社区源';
 }

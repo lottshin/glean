@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+	clearCommunityAudioCache,
 	parseFreeDictionaryAudio,
 	parseWiktionaryFileUrl,
 	parseWiktionaryImageTitles,
@@ -8,6 +9,10 @@ import {
 	wiktionaryCandidateFiles,
 	type SpeakFetcher,
 } from '../src/speak/community';
+
+afterEach(() => {
+	clearCommunityAudioCache();
+});
 
 describe('free dictionary parsing', () => {
 	const payload = [
@@ -98,9 +103,11 @@ describe('wiktionary parsing', () => {
 		).toContain('En-us-bracket.ogg');
 	});
 
-	it('guesses the usual Commons filenames', () => {
-		expect(wiktionaryCandidateFiles('Hello')).toContain('File:en-us-hello.ogg');
-		expect(wiktionaryCandidateFiles('Hello')).toContain('File:en-uk-hello.ogg');
+	it('guesses the usual Commons filenames for the requested accent only', () => {
+		expect(wiktionaryCandidateFiles('Hello', 'en-US')).toContain('File:en-us-hello.ogg');
+		expect(wiktionaryCandidateFiles('Hello', 'en-US').join(' ')).not.toMatch(/uk|gb/i);
+		expect(wiktionaryCandidateFiles('Hello', 'en-GB')).toContain('File:en-uk-hello.ogg');
+		expect(wiktionaryCandidateFiles('Hello', 'en-GB').join(' ')).not.toMatch(/-us-/i);
 	});
 });
 
@@ -123,18 +130,26 @@ describe('resolveCommunityAudio', () => {
 				],
 			};
 		};
-		const hit = await resolveCommunityAudio('free-dictionary', 'Go', 'en-US', fetchJson);
+		const lookup = await resolveCommunityAudio(
+			'free-dictionary',
+			'Go',
+			'en-US',
+			fetchJson,
+		);
 		expect(calls[0]).toContain('api.dictionaryapi.dev/api/v2/entries/en/go');
-		expect(hit?.url).toContain('_us_');
+		expect(lookup.status).toBe('hit');
+		if (lookup.status === 'hit') {
+			expect(lookup.hit.url).toContain('_us_');
+		}
 	});
 
-	it('returns null for system source', async () => {
+	it('returns miss for system source', async () => {
 		expect(
 			await resolveCommunityAudio('system', 'go', 'auto', async () => ({
 				status: 200,
 				json: {},
 			})),
-		).toBeNull();
+		).toEqual({ status: 'miss' });
 	});
 
 	it('uses a direct Commons hit before scanning the page', async () => {
@@ -146,6 +161,7 @@ describe('resolveCommunityAudio', () => {
 						query: {
 							pages: {
 								'1': {
+									title: 'File:En-us-go.ogg',
 									imageinfo: [
 										{
 											url: 'https://upload.wikimedia.org/wikipedia/commons/x/En-us-go.ogg',
@@ -159,8 +175,51 @@ describe('resolveCommunityAudio', () => {
 			}
 			throw new Error(`unexpected ${url}`);
 		};
-		const hit = await resolveCommunityAudio('wiktionary', 'go', 'en-US', fetchJson);
-		expect(hit?.source).toBe('wiktionary');
-		expect(hit?.url).toContain('En-us-go.ogg');
+		const lookup = await resolveCommunityAudio('wiktionary', 'go', 'en-US', fetchJson);
+		expect(lookup.status).toBe('hit');
+		if (lookup.status === 'hit') {
+			expect(lookup.hit.url).toContain('En-us-go.ogg');
+		}
+	});
+
+	it('treats 429 as rate-limited instead of throwing', async () => {
+		const lookup = await resolveCommunityAudio(
+			'wiktionary',
+			'go',
+			'en-US',
+			async () => ({ status: 429, json: null }),
+		);
+		expect(lookup).toEqual({ status: 'rate-limited', source: 'Wiktionary' });
+	});
+
+	it('reuses a cached hit without another network call', async () => {
+		let calls = 0;
+		const fetchJson: SpeakFetcher = async () => {
+			calls += 1;
+			return {
+				status: 200,
+				json: [
+					{
+						word: 'go',
+						phonetics: [{ audio: 'https://example.test/go--_us_1.mp3' }],
+					},
+				],
+			};
+		};
+		await resolveCommunityAudio('free-dictionary', 'go', 'en-US', fetchJson);
+		await resolveCommunityAudio('free-dictionary', 'go', 'en-US', fetchJson);
+		expect(calls).toBe(1);
+	});
+
+	it('skips the network during a rate-limit cooldown', async () => {
+		let calls = 0;
+		const fetchJson: SpeakFetcher = async () => {
+			calls += 1;
+			return { status: 429, json: null };
+		};
+		const now = 1_000_000;
+		await resolveCommunityAudio('wiktionary', 'go', 'en-US', fetchJson, now);
+		await resolveCommunityAudio('wiktionary', 'go', 'en-US', fetchJson, now + 1_000);
+		expect(calls).toBe(1);
 	});
 });

@@ -46,8 +46,8 @@ import { REVIEW_VIEW_TYPE, ReviewView } from './views/review';
 import type { ReviewCard } from './review/queue';
 import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
-import { speakWithTts, type SpeakAccent } from './speak/tts';
 import {
+	COMMUNITY_USER_AGENT,
 	resolveCommunityAudio,
 	type SpeakFetcher,
 } from './speak/community';
@@ -56,6 +56,7 @@ import {
 	playAudioBuffer,
 	stopAllSpeech,
 } from './speak/player';
+import { speakWithTts, type SpeakAccent } from './speak/tts';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
 
@@ -441,7 +442,13 @@ export default class GleanPlugin extends Plugin {
 
 	private communityFetcher(): SpeakFetcher {
 		return async (url) => {
-			const response = await requestUrl({ url, throw: false });
+			const response = await requestUrl({
+				url,
+				throw: false,
+				headers: {
+					'User-Agent': COMMUNITY_USER_AGENT,
+				},
+			});
 			let json: unknown = null;
 			try {
 				json = response.json;
@@ -456,22 +463,35 @@ export default class GleanPlugin extends Plugin {
 		text: string,
 		accent: SpeakAccent,
 	): Promise<boolean> {
-		const hit = await resolveCommunityAudio(
+		const lookup = await resolveCommunityAudio(
 			this.settings.speakSource,
 			text,
 			accent,
 			this.communityFetcher(),
 		);
-		if (!hit) {
-			new Notice('社区源没有这个词的发音，改用系统朗读');
+		if (lookup.status === 'rate-limited') {
+			new Notice(`${lookup.source} 暂时限流，已改用系统朗读`);
 			return false;
 		}
-		const audio = await requestUrl({ url: hit.url, throw: false });
+		if (lookup.status !== 'hit') {
+			// Missing clip is common; fall through to TTS without a toast storm.
+			return false;
+		}
+		const audio = await requestUrl({
+			url: lookup.hit.url,
+			throw: false,
+			headers: {
+				'User-Agent': COMMUNITY_USER_AGENT,
+			},
+		});
+		if (audio.status === 429 || audio.status === 503) {
+			new Notice(`${lookup.hit.source} 暂时限流，已改用系统朗读`);
+			return false;
+		}
 		if (audio.status < 200 || audio.status >= 300) {
-			new Notice(`社区音频下载失败（${audio.status}），改用系统朗读`);
 			return false;
 		}
-		await playAudioBuffer(audio.arrayBuffer, guessAudioMime(hit.url));
+		await playAudioBuffer(audio.arrayBuffer, guessAudioMime(lookup.hit.url));
 		return true;
 	}
 
