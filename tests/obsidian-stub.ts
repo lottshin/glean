@@ -18,6 +18,10 @@ export class Notice {
 	constructor(_message?: string, _timeout?: number) {}
 }
 
+export function setIcon(_element: unknown, _icon: string): void {
+	// Icons are painted by Obsidian; tests only need the import to resolve.
+}
+
 export function normalizePath(path: string): string {
 	return path
 		.replace(/\\/g, '/')

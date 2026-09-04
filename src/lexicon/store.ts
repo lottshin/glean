@@ -10,6 +10,12 @@ import {
 import type { DictionaryLookup } from '../dictionary';
 import { normalizeLexiconKey } from '../normalize';
 import { LexiconCatalog, parseAliasList, parseWordStatus, type LexiconCard } from './catalog';
+import type { ReviewCard } from '../review/queue';
+import {
+	isDateString,
+	parseReviewState,
+	type ReviewState,
+} from '../review/schedule';
 import {
 	createGleanUid,
 	createWordNote,
@@ -17,6 +23,7 @@ import {
 	type WordContext,
 	type WordStatus,
 	updateWordNote,
+	updateWordReview,
 	updateWordStatus,
 } from './note';
 import {
@@ -133,6 +140,63 @@ export class LexiconStore {
 		}
 		await this.app.fileManager.trashFile(file);
 		this.catalog.removePath(file.path);
+		return true;
+	}
+
+	/**
+	 * Resolve every card's schedule. Cards written before reviews existed have
+	 * no `due`, so they fall back to their capture date and drain oldest-first
+	 * instead of all landing on today with no order.
+	 */
+	reviewCards(today: string): ReviewCard[] {
+		const cards: ReviewCard[] = [];
+		for (const card of this.catalog.list()) {
+			const file = this.app.vault.getAbstractFileByPath(card.path);
+			if (!(file instanceof TFile)) {
+				continue;
+			}
+			const frontmatter =
+				this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+			const fallbackDue = isDateString(frontmatter.created)
+				? frontmatter.created
+				: today;
+			cards.push({
+				path: card.path,
+				lemma: card.lemma,
+				forms: card.forms,
+				status: card.status,
+				review: parseReviewState(frontmatter, fallbackDue),
+			});
+		}
+		return cards;
+	}
+
+	async readNote(path: string): Promise<string | null> {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		return file instanceof TFile ? this.app.vault.read(file) : null;
+	}
+
+	async recordReview(
+		card: ReviewCard,
+		review: ReviewState,
+		status?: WordStatus,
+	): Promise<boolean> {
+		const file = this.app.vault.getAbstractFileByPath(card.path);
+		if (!(file instanceof TFile) || !this.isWordNote(file)) {
+			return false;
+		}
+		const date = new Date().toISOString().slice(0, 10);
+		await this.app.vault.process(file, (content) =>
+			updateWordReview(content, review, { status, date }),
+		);
+		if (status) {
+			this.catalog.upsert({
+				path: card.path,
+				lemma: card.lemma,
+				forms: card.forms,
+				status,
+			});
+		}
 		return true;
 	}
 

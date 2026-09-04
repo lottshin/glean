@@ -1,5 +1,6 @@
 import { bilibiliWatchUrl } from '../bilibili/id';
 import type { DictionaryLookup } from '../dictionary';
+import { DEFAULT_EASE, type ReviewState } from '../review/schedule';
 
 export type WordStatus = 'new' | 'learning' | 'known' | 'ignored';
 
@@ -103,6 +104,13 @@ export function createWordNote(input: WordNoteInput): string {
 		'status: new',
 		`created: ${date}`,
 		`updated: ${date}`,
+		// Due the day it was captured: you just met the word, so the first
+		// recall attempt belongs to the same session.
+		`due: ${date}`,
+		'interval: 0',
+		`ease: ${DEFAULT_EASE}`,
+		'reps: 0',
+		'lapses: 0',
 		`phonetic: ${yamlString(entry?.phonetic ?? '')}`,
 		`pos: ${yamlString(entry?.pos ?? '')}`,
 		forms.length > 0 ? 'forms:' : 'forms: []',
@@ -330,6 +338,9 @@ export function updateWordNote(
 	setMissing('lemma', input.lookup.lemma);
 	setMissing('status', 'new', false);
 	setMissing('created', input.date, false);
+	// Scheduling fields are deliberately not backfilled here: a card without
+	// them falls back to its capture date when queued, and the first review
+	// writes them. Adding them on save would rewrite every old card for nothing.
 	setMissing('phonetic', input.lookup.entry?.phonetic ?? '');
 	setMissing('pos', input.lookup.entry?.pos ?? '');
 
@@ -396,4 +407,37 @@ export function updateWordStatus(content: string, status: WordStatus): string {
 	const lines = frontmatterMatch[1].split(/\r?\n/);
 	replaceScalar(lines, 'status', status);
 	return content.replace(frontmatterMatch[1], lines.join('\n'));
+}
+
+/**
+ * Write back the scheduler's verdict. Like `updateWordNote`, this patches only
+ * the fields Glean owns so hand-written YAML survives a review.
+ */
+export function updateWordReview(
+	content: string,
+	review: ReviewState,
+	options: { status?: WordStatus; date?: string } = {},
+): string {
+	if (!hasGleanFrontmatter(content)) {
+		throw new Error('这不是 Glean 生词笔记');
+	}
+	const frontmatterMatch = content.match(
+		/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/,
+	);
+	if (!frontmatterMatch?.[1]) {
+		throw new Error('生词笔记缺少有效的 frontmatter');
+	}
+	const lines = frontmatterMatch[1].split(/\r?\n/);
+	replaceScalar(lines, 'due', review.due);
+	replaceScalar(lines, 'interval', String(review.interval));
+	replaceScalar(lines, 'ease', String(review.ease));
+	replaceScalar(lines, 'reps', String(review.reps));
+	replaceScalar(lines, 'lapses', String(review.lapses));
+	if (options.status) {
+		replaceScalar(lines, 'status', options.status);
+	}
+	if (options.date) {
+		replaceScalar(lines, 'updated', options.date);
+	}
+	return `---\n${lines.join('\n')}\n---\n${content.slice(frontmatterMatch[0].length)}`;
 }

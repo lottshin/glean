@@ -30,6 +30,10 @@ export interface GleanSettings {
 	youtubeFolder: string;
 	bilibiliFolder: string;
 	readingHintRank: ReadingHintRank;
+	/** Cards per review session. 0 means no cap. */
+	reviewDailyLimit: number;
+	/** Flip a card to 已掌握 once its interval passes the graduation mark. */
+	reviewAutoKnown: boolean;
 	translateEnabled: boolean;
 	translateProvider: TranslationProvider;
 	translateApiKey: string;
@@ -51,6 +55,8 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	youtubeFolder: 'Glean/YouTube',
 	bilibiliFolder: 'Glean/Bilibili',
 	readingHintRank: DEFAULT_READING_HINT_RANK,
+	reviewDailyLimit: 20,
+	reviewAutoKnown: true,
 	translateEnabled: false,
 	translateProvider: 'openai',
 	translateApiKey: '',
@@ -232,6 +238,38 @@ export class GleanSettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
+				heading: '生词复习',
+				items: [
+					{
+						name: '每次复习上限',
+						desc: '一次复习最多出现多少张卡。攒了很久再开始时，上限能让积压分几天消化。',
+						aliases: ['复习', '拼写', 'SRS'],
+						control: {
+							type: 'dropdown',
+							key: 'reviewDailyLimit',
+							defaultValue: String(DEFAULT_SETTINGS.reviewDailyLimit),
+							options: {
+								'10': '10 张',
+								'20': '20 张',
+								'30': '30 张',
+								'50': '50 张',
+								'0': '不限',
+							},
+						},
+					},
+					{
+						name: '记牢后自动标记已掌握',
+						desc: '复习间隔超过三周时，把卡片标成已掌握。它仍会按间隔回来，只是不再算作学习中。',
+						control: {
+							type: 'toggle',
+							key: 'reviewAutoKnown',
+							defaultValue: DEFAULT_SETTINGS.reviewAutoKnown,
+						},
+					},
+				],
+			},
+			{
+				type: 'group',
 				heading: '在线整句翻译',
 				items: [
 					{
@@ -306,6 +344,7 @@ export class GleanSettingTab extends PluginSettingTab {
 		if (
 			key === 'defaultRate' ||
 			key === 'readingHintRank' ||
+			key === 'reviewDailyLimit' ||
 			key === 'youtubeReceiverPort'
 		) {
 			return String(this.plugin.settings[key]);
@@ -340,6 +379,19 @@ export class GleanSettingTab extends PluginSettingTab {
 				this.plugin.settings.defaultRate = rate;
 				await this.plugin.saveSettings();
 			}
+			return;
+		}
+		if (key === 'reviewDailyLimit') {
+			const limit = Number(value);
+			if (Number.isInteger(limit) && limit >= 0) {
+				this.plugin.settings.reviewDailyLimit = limit;
+				await this.plugin.saveSettings();
+			}
+			return;
+		}
+		if (key === 'reviewAutoKnown') {
+			this.plugin.settings.reviewAutoKnown = value === true;
+			await this.plugin.saveSettings();
 			return;
 		}
 		if (key === 'youtubeReceiverEnabled') {
@@ -500,6 +552,43 @@ export class GleanSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				});
 			});
+
+		new Setting(containerEl).setName('生词复习').setHeading();
+
+		new Setting(containerEl)
+			.setName('每次复习上限')
+			.setDesc(
+				'一次复习最多出现多少张卡。攒了很久再开始时，上限能让积压分几天消化。',
+			)
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOptions({
+						'10': '10 张',
+						'20': '20 张',
+						'30': '30 张',
+						'50': '50 张',
+						'0': '不限',
+					})
+					.setValue(String(this.plugin.settings.reviewDailyLimit))
+					.onChange(async (value) => {
+						this.plugin.settings.reviewDailyLimit = Number(value);
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName('记牢后自动标记已掌握')
+			.setDesc(
+				'复习间隔超过三周时，把卡片标成已掌握。它仍会按间隔回来，只是不再算作学习中。',
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.reviewAutoKnown)
+					.onChange(async (value) => {
+						this.plugin.settings.reviewAutoKnown = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 
 		new Setting(containerEl).setName('浏览器采集接收端').setHeading();
 

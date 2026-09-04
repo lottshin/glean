@@ -42,6 +42,9 @@ import {
 	LEXICON_VIEW_TYPE,
 	LexiconView,
 } from './views/lexicon';
+import { REVIEW_VIEW_TYPE, ReviewView } from './views/review';
+import type { ReviewCard } from './review/queue';
+import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
@@ -81,6 +84,7 @@ export default class GleanPlugin extends Plugin {
 
 		this.registerView(LISTEN_VIEW_TYPE, (leaf) => new ListenView(leaf, this));
 		this.registerView(LEXICON_VIEW_TYPE, (leaf) => new LexiconView(leaf, this));
+		this.registerView(REVIEW_VIEW_TYPE, (leaf) => new ReviewView(leaf, this));
 
 		void this.reloadDictionary();
 		void this.refreshYouTubeReceiver();
@@ -96,6 +100,14 @@ export default class GleanPlugin extends Plugin {
 					.setIcon('library')
 					.onClick(() => {
 						void this.activateLexiconView();
+					}),
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle('复习生词')
+					.setIcon('graduation-cap')
+					.onClick(() => {
+						void this.activateReviewView();
 					}),
 			);
 			menu.addSeparator();
@@ -131,6 +143,14 @@ export default class GleanPlugin extends Plugin {
 			name: '打开生词库',
 			callback: () => {
 				void this.activateLexiconView();
+			},
+		});
+
+		this.addCommand({
+			id: 'review-words',
+			name: '复习生词',
+			callback: () => {
+				void this.activateReviewView();
 			},
 		});
 
@@ -493,6 +513,31 @@ export default class GleanPlugin extends Plugin {
 		return this.lexicon.list();
 	}
 
+	reviewCards(today: string): ReviewCard[] {
+		return this.lexicon.reviewCards(today);
+	}
+
+	async readWordNote(path: string): Promise<string | null> {
+		return this.lexicon.readNote(path);
+	}
+
+	async recordReview(
+		card: ReviewCard,
+		review: ReviewState,
+		status?: WordStatus,
+	): Promise<boolean> {
+		return this.lexicon.recordReview(card, review, status);
+	}
+
+	async openWordNotePath(path: string): Promise<boolean> {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) {
+			return false;
+		}
+		await this.app.workspace.getLeaf(true).openFile(file);
+		return true;
+	}
+
 	async setWordStatus(word: string, status: WordStatus): Promise<boolean> {
 		return this.lexicon.setStatus(word, status);
 	}
@@ -845,6 +890,23 @@ export default class GleanPlugin extends Plugin {
 		workspace.setActiveLeaf(leaf, { focus: true });
 		const view = leaf.view;
 		if (!(view instanceof LexiconView)) {
+			return null;
+		}
+		view.refresh();
+		return view;
+	}
+
+	/**
+	 * Reviews open as a main-area tab, not a sidebar: typing practice needs the
+	 * width, and the sidebar is already the library's home.
+	 */
+	async activateReviewView(): Promise<ReviewView | null> {
+		const { workspace } = this.app;
+		const leaf = workspace.getLeavesOfType(REVIEW_VIEW_TYPE)[0] ?? workspace.getLeaf('tab');
+		await leaf.setViewState({ type: REVIEW_VIEW_TYPE, active: true });
+		workspace.setActiveLeaf(leaf, { focus: true });
+		const view = leaf.view;
+		if (!(view instanceof ReviewView)) {
 			return null;
 		}
 		view.refresh();

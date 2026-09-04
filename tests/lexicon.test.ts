@@ -7,8 +7,10 @@ import {
 	hasGleanFrontmatter,
 	type WordContext,
 	updateWordNote,
+	updateWordReview,
 	updateWordStatus,
 } from '../src/lexicon/note';
+import type { ReviewState } from '../src/review/schedule';
 import { LexiconCatalog } from '../src/lexicon/catalog';
 import {
 	lemmaBucket,
@@ -363,6 +365,120 @@ describe('word note', () => {
 		expect(updated.content).toContain('  - "gone"');
 		expect(updated.content).toContain('updated: 2026-09-01');
 		expect(updated.content).not.toContain('  old value');
+	});
+});
+
+describe('review state on a card', () => {
+	const review: ReviewState = {
+		interval: 6,
+		ease: 2.36,
+		reps: 2,
+		lapses: 1,
+		due: '2026-09-11',
+	};
+
+	it('gives a new card a schedule that starts today', () => {
+		const note = createWordNote({
+			lookup,
+			context,
+			date: '2026-09-04',
+			uid: 'glean-test-123',
+		});
+		expect(note).toContain('due: 2026-09-04');
+		expect(note).toContain('interval: 0');
+		expect(note).toContain('reps: 0');
+	});
+
+	it('adds the fields to a card that predates reviews', () => {
+		const legacy = [
+			'---',
+			'glean: true',
+			'lemma: "go"',
+			'status: new',
+			'---',
+			'',
+			'# go',
+			'',
+		].join('\n');
+		const updated = updateWordReview(legacy, review);
+		expect(updated).toContain('due: 2026-09-11');
+		expect(updated).toContain('interval: 6');
+		expect(updated).toContain('ease: 2.36');
+		expect(updated).toContain('lapses: 1');
+		expect(updated).toContain('# go');
+	});
+
+	it('replaces an existing schedule without duplicating keys', () => {
+		const existing = [
+			'---',
+			'glean: true',
+			'lemma: "go"',
+			'status: learning',
+			'due: 2026-09-04',
+			'interval: 1',
+			'ease: 2.5',
+			'reps: 1',
+			'lapses: 0',
+			'---',
+			'',
+			'# go',
+			'',
+		].join('\n');
+		const updated = updateWordReview(existing, review);
+		expect(updated.match(/^due:/gm)).toHaveLength(1);
+		expect(updated.match(/^interval:/gm)).toHaveLength(1);
+		expect(updated).toContain('due: 2026-09-11');
+		expect(updated).not.toContain('interval: 1');
+	});
+
+	it('leaves hand-written fields and the body alone', () => {
+		const custom = [
+			'---',
+			'glean: true',
+			'lemma: "go"',
+			'status: new',
+			'tags: [verb, core]',
+			'note: "别动我"',
+			'---',
+			'',
+			'# go',
+			'',
+			'## Senses',
+			'',
+			'- 去；离开',
+			'',
+		].join('\n');
+		const updated = updateWordReview(custom, review);
+		expect(updated).toContain('tags: [verb, core]');
+		expect(updated).toContain('note: "别动我"');
+		expect(updated).toContain('## Senses');
+		expect(updated).toContain('- 去；离开');
+	});
+
+	it('updates status and updated date only when asked', () => {
+		const card = [
+			'---',
+			'glean: true',
+			'lemma: "go"',
+			'status: new',
+			'updated: 2026-08-01',
+			'---',
+			'',
+			'# go',
+			'',
+		].join('\n');
+		expect(updateWordReview(card, review)).toContain('updated: 2026-08-01');
+
+		const graduated = updateWordReview(card, review, {
+			status: 'known',
+			date: '2026-09-04',
+		});
+		expect(graduated).toContain('status: known');
+		expect(graduated).toContain('updated: 2026-09-04');
+	});
+
+	it('refuses a note that is not a Glean card', () => {
+		expect(() => updateWordReview('---\ntitle: hi\n---\n', review)).toThrow();
 	});
 });
 

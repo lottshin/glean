@@ -1509,6 +1509,125 @@ button.glean-word-popover-remove:hover {
 	color: var(--text-normal);
 }
 
+.glean-review {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	padding: 24px max(24px, calc(50% - 22em));
+}
+
+.glean-review-start {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.glean-review-start h3 {
+	margin: 0;
+}
+
+.glean-review-start p {
+	margin: 0;
+	color: var(--text-muted);
+}
+
+.glean-review-note {
+	font-size: 13px;
+}
+
+.glean-review-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.glean-review-icon {
+	display: inline-flex;
+	padding: 4px;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.glean-review-icon:hover {
+	color: var(--text-normal);
+}
+
+.glean-review-body {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.glean-review-senses {
+	margin: 0;
+	padding-left: 1.2em;
+	font-size: 17px;
+	line-height: 1.6;
+}
+
+.glean-review-sentence {
+	margin: 0;
+	padding: 10px 14px;
+	border-left: 3px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 15px;
+	line-height: 1.7;
+}
+
+.glean-review-input {
+	width: 100%;
+	padding: 10px 12px;
+	font-size: 20px;
+	font-family: var(--font-monospace);
+	letter-spacing: 0.04em;
+}
+
+.glean-review-input:disabled {
+	color: var(--text-accent);
+	-webkit-text-fill-color: var(--text-accent);
+	opacity: 1;
+}
+
+.glean-review-feedback {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	min-height: 1.6em;
+	font-size: 14px;
+}
+
+.glean-review-feedback.is-wrong {
+	color: var(--text-error);
+}
+
+.glean-review-feedback.is-correct .glean-review-answer {
+	color: var(--text-success);
+}
+
+.glean-review-feedback.is-revealed .glean-review-answer {
+	color: var(--text-warning);
+}
+
+.glean-review-answer {
+	font-size: 17px;
+	font-weight: 600;
+}
+
+.glean-review-verdict {
+	color: var(--text-muted);
+}
+
+.glean-review-actions {
+	display: flex;
+	gap: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.glean-btn,
 	.glean-dict-cell,
