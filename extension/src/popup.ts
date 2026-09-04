@@ -1,4 +1,9 @@
-import { pickDefaultTrack, type CaptionTrack, type YouTubeCapture } from './capture';
+import {
+	pickDefaultTrack,
+	usableEnglishTracks as youtubeEnglishTracks,
+	type CaptionTrack,
+	type YouTubeCapture,
+} from './capture';
 import type { BilibiliCapture } from './bilibili-capture';
 import {
 	bilibiliSyncRefusalMessage,
@@ -118,10 +123,11 @@ async function refreshCapture(): Promise<void> {
 			);
 		} else {
 			const youtube = capture as YouTubeCapture;
-			const preferred = pickDefaultTrack(youtube.tracks);
+			const english = youtubeEnglishTracks(youtube.tracks);
+			const preferred = pickDefaultTrack(english);
 			const ordered = preferred
-				? [preferred, ...youtube.tracks.filter((track) => track !== preferred)]
-				: youtube.tracks;
+				? [preferred, ...english.filter((track) => track !== preferred)]
+				: english;
 			fillLanguages(
 				ordered.map((track: CaptionTrack) => ({
 					index: youtube.tracks.indexOf(track),
@@ -135,9 +141,11 @@ async function refreshCapture(): Promise<void> {
 				? usableEnglishTracks((capture as BilibiliCapture).tracks).length > 0
 					? `已识别：${capture.title}`
 					: bilibiliRefusal(capture as BilibiliCapture)
-				: capture.tracks.length > 0
+				: youtubeEnglishTracks((capture as YouTubeCapture).tracks).length > 0
 				? `已识别：${capture.title}`
-				: '该视频没有可下载的字幕轨道',
+				: (capture as YouTubeCapture).tracks.length > 0
+					? '该视频只有非英文字幕，Glean 只导入英文'
+					: '该视频没有可下载的字幕轨道',
 			langSelect.options.length > 0 && !langSelect.disabled ? 'ok' : 'error',
 		);
 	} catch {

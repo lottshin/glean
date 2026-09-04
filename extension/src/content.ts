@@ -3,7 +3,9 @@ import {
 	captureYouTubeFromHtml,
 	captureYouTubePage,
 	fetchTrackRaw,
+	isEnglishCaptionLanguage,
 	pickDefaultTrack,
+	usableEnglishTracks,
 	type CaptionTrack,
 	type YouTubeCapture,
 } from './capture';
@@ -220,11 +222,11 @@ function chooseTrack(capture: YouTubeCapture, preferredTrackIndex?: number): Cap
 		preferredTrackIndex >= 0
 	) {
 		const selected = capture.tracks[preferredTrackIndex];
-		if (selected) {
+		if (selected && isEnglishCaptionLanguage(selected.languageCode)) {
 			return selected;
 		}
 	}
-	return pickDefaultTrack(capture.tracks);
+	return pickDefaultTrack(usableEnglishTracks(capture.tracks));
 }
 
 function matchingTrack(
@@ -383,7 +385,7 @@ async function syncCurrentVideo(
 	}
 	if (capture.tracks.length === 0) {
 		setButtonState(button, '无字幕', 'error');
-		return { ok: false, error: '该视频没有可用字幕' };
+		return { ok: false, error: '该视频没有英文字幕轨' };
 	}
 
 	const settings = await readSettings();
@@ -395,7 +397,7 @@ async function syncCurrentVideo(
 	const track = chooseTrack(capture, preferredTrackIndex);
 	if (!track) {
 		setButtonState(button, '无可用字幕', 'error');
-		return { ok: false, error: '没有可用字幕轨道' };
+		return { ok: false, error: '没有英文字幕轨道' };
 	}
 
 	setButtonState(button, '同步中…', 'busy');

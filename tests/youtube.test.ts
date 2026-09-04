@@ -470,7 +470,7 @@ describe('YouTube capture choices', () => {
 		expect(capture?.tracks[0]?.languageCode).toBe('en');
 	});
 
-	it('prefers manual English, then manual, then ASR', () => {
+	it('prefers manual English over English ASR and ignores other languages', () => {
 		const tracks = [
 			{
 				baseUrl: 'asr',
@@ -495,6 +495,17 @@ describe('YouTube capture choices', () => {
 			},
 		];
 		expect(pickDefaultTrack(tracks)?.baseUrl).toBe('en');
+		expect(
+			pickDefaultTrack([
+				{
+					baseUrl: 'es',
+					languageCode: 'es',
+					name: 'Español',
+					kind: '',
+					isAsr: false,
+				},
+			]),
+		).toBeNull();
 	});
 });
 
@@ -532,6 +543,17 @@ describe('YouTube session files', () => {
 			}).ok,
 		).toBe(true);
 		expect(validateImportPayload({}).ok).toBe(false);
+		expect(
+			validateImportPayload({
+				token: 'secret',
+				videoId: 'dQw4w9WgXcQ',
+				title: 'A video',
+				channel: '',
+				url: '',
+				lang: 'es',
+				vtt: 'WEBVTT\n\n',
+			}).ok,
+		).toBe(false);
 	});
 });
 

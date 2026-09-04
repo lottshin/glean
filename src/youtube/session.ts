@@ -1,3 +1,5 @@
+import { isEnglishLanguage } from '../bilibili/subtitle';
+
 export interface YouTubeImportPayload {
 	token: string;
 	videoId: string;
@@ -103,6 +105,9 @@ export function validateImportPayload(
 	}
 	if (!lang) {
 		return { ok: false, error: '缺少字幕语言' };
+	}
+	if (!isEnglishLanguage(lang)) {
+		return { ok: false, error: '只接受英文字幕' };
 	}
 	if (!vtt.trim()) {
 		return { ok: false, error: '缺少字幕内容' };

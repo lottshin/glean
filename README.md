@@ -9,7 +9,7 @@
 Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 
 - **Obsidian Web Clipper**（[官方](https://obsidian.md/clipper)）：把网页存进 vault，再用 Glean 阅读。
-- **Glean Capture**：从 YouTube 同步字幕，或从 B 站同步英文字幕和在线播放地址。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
+- **Glean Capture**：从 YouTube 或 B 站同步**英文字幕**到本库。非英文轨会拒绝。B 站另带在线播放地址。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
 
 详情在 **设置 → Glean** 顶部；侧边栏麦穗菜单也有「浏览器扩展…」。
 
@@ -32,16 +32,17 @@ Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 - `D`：精听 / 听写切换
 - `H`：听写模式显示 / 隐藏原句
 
-### YouTube 采集与跨端学习
+### YouTube / B 站采集
 
-桌面浏览器扩展负责从当前 YouTube 页面读取已有字幕，桌面 Obsidian 的 Glean 接收端把字幕与会话笔记写入 `Glean/YouTube/`。这些都是普通 vault 文件，可经 Obsidian Sync 到 iPad 和手机。
+桌面浏览器扩展读取页面上的**英文字幕**，桌面 Obsidian 的接收端写成 vault 文件，可经 Obsidian Sync 到 iPad 和手机。查词和生词库只服务英语，所以非英文字幕不会导入。
 
 1. 运行 `npm run extension:build`，在 Chrome / Edge 的扩展管理页加载 `extension/dist/`。
-2. 在 **设置 → Glean → YouTube 采集接收端** 确认端口并复制 token。
-3. 把端口和 token 填入扩展，打开带字幕的 YouTube 视频，选择字幕语言后同步。
-4. 在 Obsidian 打开生成的会话笔记，运行 **Glean: 精听当前 YouTube 笔记**。
+2. 在 **设置 → Glean → 浏览器采集接收端** 确认端口并复制 token。
+3. 把端口和 token 填入扩展，打开带英文字幕的视频后同步。
+4. YouTube：打开生成的会话笔记，运行 **Glean: 精听当前 YouTube 笔记**。
+5. B 站：须先登录；只要跟读音对得上的英文字幕（人工轨或英文原声的 AI 轨）。机翻英文会拒绝。打开笔记即可精听；直链约两小时过期，回页面再同步，或点「存本地」。
 
-扩展只读取页面已有字幕，不下载音视频。采集需要桌面 Obsidian 正在运行；iPad 和手机无需安装浏览器扩展。移动端播放仍依赖 YouTube 网络和嵌入能力，若环境报 Error 153，字幕阅读、查词和生词库仍可使用。
+扩展不下载 YouTube 音视频。采集需要桌面 Obsidian 正在运行。移动端 YouTube 播放仍依赖网络和嵌入；若报 Error 153，字幕阅读、查词和生词库仍可用。
 
 ### 阅读
 
@@ -177,7 +178,8 @@ npm run lint
 
 ## 当前边界
 
-- YouTube 和 B 站都只采集页面已有字幕，不抓取无字幕视频。
+- YouTube 和 B 站都只采集**英文字幕**。非英文轨、以及 B 站从其他语言机翻出来的英文轨，都会拒绝。
+- 两边都不抓无字幕视频。
 - B 站画面默认在线播放，不占 vault 空间；直链约两小时后失效，回视频页面重新同步即可。想离线复习，在精听工具栏点「存本地」把 720P MP4 存进 vault。
 - B 站 CDN 要求请求同时带 `Referer` 和浏览器 `User-Agent`，且不能带 `Origin`，浏览器无法满足，所以画面由插件本地的采集接收端转发。接收端没运行时在线播放不可用，此时可改用「存本地」。
 - B 站被切成多段的老视频暂不支持在线精听，因为拼接 MP4 分片需要转封装。

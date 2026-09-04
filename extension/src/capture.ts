@@ -232,12 +232,17 @@ export function pickDefaultTrack(tracks: CaptionTrack[]): CaptionTrack | null {
 	return (
 		byLang('en', false) ??
 		byLang('en', true) ??
-		byLang('zh', false) ??
-		byLang('zh', true) ??
-		tracks.find((track) => !track.isAsr) ??
-		tracks[0] ??
 		null
 	);
+}
+
+/** Tracks Glean can actually look up: English, not auto-translate targets. */
+export function usableEnglishTracks(tracks: CaptionTrack[]): CaptionTrack[] {
+	return tracks.filter((track) => isEnglishCaptionLanguage(track.languageCode));
+}
+
+export function isEnglishCaptionLanguage(code: string): boolean {
+	return /^en(?:[-_]|$)/i.test(code.trim());
 }
 
 function timedTextUrls(

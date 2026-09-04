@@ -88,7 +88,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: 'Glean Capture',
-						desc: '采集 YouTube 字幕，或 B 站英文字幕与纯音频，并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+						desc: '采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
 						aliases: ['youtube', '扩展'],
 					},
 				],
@@ -205,7 +205,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: 'B 站采集目录',
-						desc: 'B 站英文字幕、纯音频和会话笔记存放的 vault 相对路径。',
+						desc: 'B 站英文字幕、在线播放地址和会话笔记存放的 vault 相对路径。',
 						visible: () => this.plugin.settings.youtubeReceiverEnabled,
 						control: {
 							type: 'text',
@@ -428,7 +428,7 @@ export class GleanSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Glean Capture')
 			.setDesc(
-				'采集 YouTube 字幕并写入本库。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+				'采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
 			);
 
 		new Setting(containerEl)
@@ -583,7 +583,7 @@ export class GleanSettingTab extends PluginSettingTab {
 
 			new Setting(containerEl)
 				.setName('B 站采集目录')
-				.setDesc('B 站英文字幕、纯音频和会话笔记存放的 vault 相对路径。')
+				.setDesc('B 站英文字幕、在线播放地址和会话笔记存放的 vault 相对路径。')
 				.addText((text) =>
 					text
 						.setValue(this.plugin.settings.bilibiliFolder)
