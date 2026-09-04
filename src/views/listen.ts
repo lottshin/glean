@@ -1127,12 +1127,12 @@ export class ListenView extends ItemView {
 			inLexicon: initialCard !== null,
 			status: initialCard?.status,
 			onDismiss: (closedLookupId) => this.clearSelectedWord(closedLookupId),
-			onSpeak: async (lookup) => {
+			onSpeak: async (lookup, accent) => {
 				const surface =
 					lookup?.lemma ??
 					lookup?.surface ??
 					word;
-				return this.speakLookup(cue, wordIndex, surface);
+				return this.speakLookup(cue, wordIndex, surface, accent);
 			},
 			onSave: async (lookup) => {
 				if (!sourcePath) {
@@ -1705,11 +1705,12 @@ export class ListenView extends ItemView {
 		cue: Cue,
 		wordIndex: number,
 		text: string,
+		accent: 'en-US' | 'en-GB' = 'en-US',
 	): Promise<boolean> {
 		stopAllSpeech();
 		const clip = wordClipWindow(cue, wordIndex);
 		if (!clip) {
-			await this.plugin.speakWord(text);
+			await this.plugin.speakWord(text, accent);
 			return true;
 		}
 		this.clearSpeakClipTimer();

@@ -157,9 +157,10 @@ export class ReadingMode {
 			inLexicon: initialCard !== null,
 			status: initialCard?.status,
 			onDismiss: () => undefined,
-			onSpeak: async (lookup) => {
+			onSpeak: async (lookup, accent) => {
 				await this.plugin.speakWord(
 					lookup?.lemma ?? lookup?.surface ?? word,
+					accent,
 				);
 				return true;
 			},
@@ -287,8 +288,8 @@ export class ReadingMode {
 					throw error;
 				}
 			},
-			onSpeakWord: async (item) => {
-				await this.plugin.speakWord(item.lemma);
+			onSpeakWord: async (item, accent) => {
+				await this.plugin.speakWord(item.lemma, accent);
 			},
 			onTranslate: (passage) => this.plugin.translatePassage(passage),
 			onClose: () => this.onPassagePanelClosed(file),

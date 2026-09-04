@@ -5,6 +5,9 @@
 
 export type SpeakAccent = 'auto' | 'en-US' | 'en-GB';
 
+/** Accents a learner can pick on the card; settings may still use `auto`. */
+export type SpeakAccentChoice = 'en-US' | 'en-GB';
+
 export interface SpeakVoiceLike {
 	lang: string;
 	name: string;

@@ -832,12 +832,28 @@ button.glean-btn.glean-btn-primary:disabled {
 	font-size: 20px;
 }
 
+.glean-word-popover-speak-group {
+	display: inline-flex;
+	gap: 4px;
+	margin-left: 2px;
+}
+
 .glean-word-popover-speak {
-	flex: 0 0 auto;
+	min-width: 28px;
+	height: 24px;
+	padding: 0 7px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-primary);
+	box-shadow: none;
 	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1;
+	cursor: pointer;
 }
 
 .glean-word-popover-speak:hover {
+	border-color: var(--interactive-accent);
 	color: var(--text-accent);
 }
 
@@ -1081,11 +1097,27 @@ button.glean-word-popover-remove:hover {
 	font-size: 11px;
 }
 
+.glean-passage-speak-group {
+	display: inline-flex;
+	gap: 3px;
+}
+
 .glean-passage-speak {
+	min-width: 24px;
+	height: 20px;
+	padding: 0 5px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 5px;
+	background: transparent;
+	box-shadow: none;
 	color: var(--text-faint);
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
 }
 
 .glean-passage-speak:hover {
+	border-color: var(--interactive-accent);
 	color: var(--text-accent);
 }
 
@@ -1429,15 +1461,28 @@ button.glean-word-popover-remove:hover {
 	color: var(--text-faint);
 }
 
+.glean-lexicon-view .glean-lexicon-speak-group {
+	display: inline-flex;
+	gap: 2px;
+}
+
 .glean-lexicon-view .glean-lexicon-speak {
-	width: 24px;
-	height: 24px;
+	min-width: 22px;
+	height: 22px;
 	margin: 0;
-	padding: 4px;
+	padding: 0 5px;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	background: transparent;
+	box-shadow: none;
 	color: var(--text-faint);
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
 }
 
 .glean-lexicon-view .glean-lexicon-speak:hover {
+	border-color: var(--background-modifier-border);
 	color: var(--text-accent);
 }
 
@@ -1591,7 +1636,26 @@ button.glean-word-popover-remove:hover {
 .glean-review-header-actions {
 	display: flex;
 	align-items: center;
-	gap: 2px;
+	gap: 4px;
+}
+
+.glean-review-speak {
+	min-width: 26px;
+	height: 24px;
+	padding: 0 7px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.glean-review-speak:hover {
+	border-color: var(--interactive-accent);
+	color: var(--text-accent);
 }
 
 .glean-review-icon {

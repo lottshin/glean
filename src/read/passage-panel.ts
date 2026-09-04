@@ -1,11 +1,10 @@
-import { setIcon } from 'obsidian';
 import type { GlossItem, PassageGloss } from '../translate/gloss';
 
 export interface PassagePanelHost {
 	sourceName: string;
 	canTranslate: () => boolean;
 	onSaveWord: (item: GlossItem, passage: string) => Promise<void>;
-	onSpeakWord: (item: GlossItem) => Promise<void>;
+	onSpeakWord: (item: GlossItem, accent: 'en-US' | 'en-GB') => Promise<void>;
 	onTranslate: (passage: string) => Promise<string>;
 	onClose: () => void;
 }
@@ -236,18 +235,24 @@ export class GleanPassagePanel {
 			});
 		}
 
-		const speak = head.createEl('button', {
-			cls: 'glean-passage-speak clickable-icon',
-			attr: {
-				type: 'button',
-				'aria-label': `朗读 ${item.lemma}`,
-				title: '朗读',
-			},
-		});
-		setIcon(speak, 'volume-2');
-		speak.addEventListener('click', () => {
-			void host.onSpeakWord(item);
-		});
+		const speak = head.createDiv({ cls: 'glean-passage-speak-group' });
+		for (const [accent, label] of [
+			['en-US', '美'],
+			['en-GB', '英'],
+		] as const) {
+			const button = speak.createEl('button', {
+				cls: 'glean-passage-speak',
+				text: label,
+				attr: {
+					type: 'button',
+					'aria-label': label === '美' ? '美式发音' : '英式发音',
+					title: label === '美' ? '美式发音' : '英式发音',
+				},
+			});
+			button.addEventListener('click', () => {
+				void host.onSpeakWord(item, accent);
+			});
+		}
 
 		const state = this.saveStates.get(item.lemma) ?? 'idle';
 		const inLexicon = item.status !== null || state === 'saved';

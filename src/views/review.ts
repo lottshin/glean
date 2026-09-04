@@ -222,14 +222,22 @@ export class ReviewView extends ItemView {
 			text: `${this.index + 1} / ${this.queue.length}`,
 		});
 		const headerActions = header.createDiv({ cls: 'glean-review-header-actions' });
-		const speak = headerActions.createEl('button', {
-			cls: 'glean-review-icon',
-			attr: { 'aria-label': '朗读', title: '朗读' },
-		});
-		setIcon(speak, 'volume-2');
-		speak.addEventListener('click', () => {
-			void this.plugin.speakWord(card.lemma);
-		});
+		for (const [accent, label] of [
+			['en-US', '美'],
+			['en-GB', '英'],
+		] as const) {
+			const speak = headerActions.createEl('button', {
+				cls: 'glean-review-speak',
+				text: label,
+				attr: {
+					'aria-label': label === '美' ? '美式发音' : '英式发音',
+					title: label === '美' ? '美式发音' : '英式发音',
+				},
+			});
+			speak.addEventListener('click', () => {
+				void this.plugin.speakWord(card.lemma, accent);
+			});
+		}
 		const openNote = headerActions.createEl('button', {
 			cls: 'glean-review-icon',
 			attr: { 'aria-label': '打开这张卡', title: '打开这张卡' },

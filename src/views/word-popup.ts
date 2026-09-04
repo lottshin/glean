@@ -1,4 +1,3 @@
-import { setIcon } from 'obsidian';
 import type { DictionaryLookup } from '../dictionary';
 import type { WordStatus } from '../lexicon/note';
 import type { SaveWordResult } from '../lexicon/store';
@@ -17,7 +16,10 @@ export interface WordLookupContext {
 	 * Prefer a media clip when one exists (listen view). Return true if the
 	 * host handled playback so the popover does not also fire system TTS.
 	 */
-	onSpeak?: (lookup: DictionaryLookup | null) => Promise<boolean>;
+	onSpeak?: (
+		lookup: DictionaryLookup | null,
+		accent: 'en-US' | 'en-GB',
+	) => Promise<boolean>;
 	onDismiss: (lookupId: number) => void;
 	onSave: (lookup: DictionaryLookup | null) => Promise<SaveWordResult>;
 	onRemove: (lookup: DictionaryLookup | null) => Promise<boolean>;
@@ -153,20 +155,9 @@ export class GleanWordPopover {
 			cls: 'glean-word-popover-title',
 			text: context.word,
 		});
-		const speakButton = titleRow.createEl('button', {
-			cls: 'glean-word-popover-speak clickable-icon',
-			attr: {
-				type: 'button',
-				'aria-label': '朗读',
-				title: '朗读',
-			},
-		});
-		setIcon(speakButton, 'volume-2');
-		speakButton.addEventListener('click', (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.speak();
-		});
+		const speakGroup = titleRow.createDiv({ cls: 'glean-word-popover-speak-group' });
+		this.addSpeakButton(speakGroup, 'en-US', '美');
+		this.addSpeakButton(speakGroup, 'en-GB', '英');
 		if (context.lookup?.entry && context.lookup.match !== 'direct') {
 			title.createSpan({
 				cls: 'glean-word-popover-lemma',
@@ -276,13 +267,34 @@ export class GleanWordPopover {
 		});
 	}
 
-	private async speak(): Promise<void> {
+	private addSpeakButton(
+		parent: HTMLElement,
+		accent: 'en-US' | 'en-GB',
+		label: string,
+	): void {
+		const button = parent.createEl('button', {
+			cls: 'glean-word-popover-speak',
+			text: label,
+			attr: {
+				type: 'button',
+				'aria-label': label === '美' ? '美式发音' : '英式发音',
+				title: label === '美' ? '美式发音' : '英式发音',
+			},
+		});
+		button.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.speak(accent);
+		});
+	}
+
+	private async speak(accent: 'en-US' | 'en-GB'): Promise<void> {
 		const context = this.context;
 		if (!context?.onSpeak) {
 			return;
 		}
 		try {
-			await context.onSpeak(context.lookup ?? null);
+			await context.onSpeak(context.lookup ?? null, accent);
 		} catch {
 			// Host surfaces a Notice; leave the popover open.
 		}

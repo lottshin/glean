@@ -296,7 +296,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '朗读口音',
-						desc: '系统朗读和社区源（有多条时）优先用哪种口音。本机没装英文语音包时，系统朗读可能听起来不对。',
+						desc: '社区源只有一条、或系统朗读兜底时的默认偏好。词卡上的「美 / 英」按钮会直接指定口音。',
 						aliases: ['TTS', '发音', '朗读'],
 						control: {
 							type: 'dropdown',
@@ -679,7 +679,7 @@ export class GleanSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('朗读口音')
 			.setDesc(
-				'系统朗读和社区源（有多条时）优先用哪种口音。',
+				'社区源只有一条、或系统朗读兜底时的默认偏好。词卡上的「美 / 英」会直接指定口音。',
 			)
 			.addDropdown((dropdown) => {
 				dropdown

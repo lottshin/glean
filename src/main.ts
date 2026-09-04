@@ -46,7 +46,7 @@ import { REVIEW_VIEW_TYPE, ReviewView } from './views/review';
 import type { ReviewCard } from './review/queue';
 import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
-import { speakWithTts } from './speak/tts';
+import { speakWithTts, type SpeakAccent } from './speak/tts';
 import {
 	resolveCommunityAudio,
 	type SpeakFetcher,
@@ -415,22 +415,25 @@ export default class GleanPlugin extends Plugin {
 	}
 
 	/**
-	 * Pronounce a lemma/surface. Prefer community audio when configured,
-	 * otherwise system TTS. Listen view still prefers a media clip first.
+	 * Pronounce a lemma/surface. `accent` comes from the card's 美/英 buttons;
+	 * omitting it falls back to the settings default.
 	 */
-	async speakWord(text: string): Promise<void> {
+	async speakWord(
+		text: string,
+		accent: SpeakAccent = this.settings.speakAccent,
+	): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed) {
 			return;
 		}
 		try {
 			if (this.settings.speakSource !== 'system') {
-				const played = await this.speakCommunityWord(trimmed);
+				const played = await this.speakCommunityWord(trimmed, accent);
 				if (played) {
 					return;
 				}
 			}
-			await speakWithTts(trimmed, this.settings.speakAccent);
+			await speakWithTts(trimmed, accent);
 		} catch (error) {
 			new Notice(error instanceof Error ? error.message : '朗读失败');
 		}
@@ -449,11 +452,14 @@ export default class GleanPlugin extends Plugin {
 		};
 	}
 
-	private async speakCommunityWord(text: string): Promise<boolean> {
+	private async speakCommunityWord(
+		text: string,
+		accent: SpeakAccent,
+	): Promise<boolean> {
 		const hit = await resolveCommunityAudio(
 			this.settings.speakSource,
 			text,
-			this.settings.speakAccent,
+			accent,
 			this.communityFetcher(),
 		);
 		if (!hit) {
