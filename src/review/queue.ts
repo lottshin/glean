@@ -84,7 +84,8 @@ export interface ReviewPrompt {
 	sentence: string | null;
 }
 
-const BLANK = '＿＿＿＿';
+/** Placeholder the view swaps for a styled gap. */
+export const BLANK = '\u0000glean-blank\u0000';
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -154,4 +155,29 @@ export function parseReviewPrompt(
 		senses,
 		sentence: usable ? maskWord(usable, forms) : null,
 	};
+}
+
+/** Text runs around each blank, so the view can style the gaps. */
+export function splitOnBlank(sentence: string): string[] {
+	return sentence.split(BLANK);
+}
+
+export interface ParsedSense {
+	/** Part of speech such as `n.` or `[计]`, empty when the gloss has none. */
+	pos: string;
+	gloss: string;
+}
+
+/**
+ * ECDICT glosses arrive as "n. 支架, 括弧". Splitting the marker off lets the
+ * view set it apart instead of running it into the meaning.
+ */
+export function parseSense(sense: string): ParsedSense {
+	const match = sense
+		.trim()
+		.match(/^(\[[^\]]{1,8}\]|[a-zA-Z]{1,5}\.)\s+(.+)$/);
+	if (!match?.[1] || !match[2]) {
+		return { pos: '', gloss: sense.trim() };
+	}
+	return { pos: match[1], gloss: match[2].trim() };
 }

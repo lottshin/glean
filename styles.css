@@ -1509,126 +1509,334 @@ button.glean-word-popover-remove:hover {
 	color: var(--text-normal);
 }
 
+/* ---- 生词复习 ---- */
+
 .glean-review {
+	--glean-review-width: 34em;
 	display: flex;
 	flex-direction: column;
-	gap: 18px;
-	padding: 24px max(24px, calc(50% - 22em));
+	align-items: center;
+	gap: 20px;
+	min-height: 100%;
+	padding: 28px 24px 40px;
+	overflow-y: auto;
 }
 
-.glean-review-start {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 10px;
+.glean-review > * {
+	width: min(var(--glean-review-width), 100%);
 }
 
-.glean-review-start h3 {
-	margin: 0;
+/* Progress reads as a filling bar; the count alone was easy to miss. */
+.glean-review-track {
+	height: 3px;
+	border-radius: 999px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
 }
 
-.glean-review-start p {
-	margin: 0;
-	color: var(--text-muted);
-}
-
-.glean-review-note {
-	font-size: 13px;
+.glean-review-track-fill {
+	height: 100%;
+	border-radius: 999px;
+	background: var(--interactive-accent);
+	transition: width 180ms ease;
 }
 
 .glean-review-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	color: var(--text-muted);
-	font-size: 13px;
+	margin-top: -8px;
+	color: var(--text-faint);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
 }
 
 .glean-review-icon {
 	display: inline-flex;
 	padding: 4px;
 	border: none;
+	border-radius: 6px;
 	background: transparent;
 	box-shadow: none;
-	color: var(--text-muted);
+	color: var(--text-faint);
 	cursor: pointer;
 }
 
 .glean-review-icon:hover {
+	background: var(--background-modifier-hover);
 	color: var(--text-normal);
 }
 
-.glean-review-body {
+.glean-review-card {
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	gap: 22px;
+	padding: 28px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 14px;
+	background: var(--background-primary-alt);
 }
 
 .glean-review-senses {
-	margin: 0;
-	padding-left: 1.2em;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.glean-review-sense {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
 	font-size: 17px;
-	line-height: 1.6;
+	line-height: 1.55;
+}
+
+/* Fixed column keeps the meanings aligned whether or not a marker exists. */
+.glean-review-pos {
+	flex: 0 0 3.2em;
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
+	font-size: 12px;
+	text-align: right;
+}
+
+.glean-review-gloss {
+	flex: 1;
+	color: var(--text-normal);
 }
 
 .glean-review-sentence {
-	margin: 0;
-	padding: 10px 14px;
-	border-left: 3px solid var(--background-modifier-border);
+	padding-top: 18px;
+	border-top: 1px solid var(--background-modifier-border);
 	color: var(--text-muted);
 	font-size: 15px;
-	line-height: 1.7;
+	line-height: 2;
+}
+
+/* The gap is the question, so it gets an accent rule instead of underscores. */
+.glean-review-blank {
+	display: inline-block;
+	min-width: 5em;
+	margin: 0 2px;
+	border-bottom: 2px solid var(--interactive-accent);
+	color: var(--text-accent);
+	font-weight: 600;
+	text-align: center;
+	vertical-align: baseline;
+}
+
+.glean-review-field {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
 }
 
 .glean-review-input {
 	width: 100%;
-	padding: 10px 12px;
-	font-size: 20px;
+	padding: 12px 16px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+	background: var(--background-primary);
 	font-family: var(--font-monospace);
-	letter-spacing: 0.04em;
+	font-size: 22px;
+	letter-spacing: 0.06em;
+	text-align: center;
+	transition:
+		border-color 140ms ease,
+		box-shadow 140ms ease;
+}
+
+.glean-review-input:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 3px
+		color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+	outline: none;
 }
 
 .glean-review-input:disabled {
+	border-style: dashed;
 	color: var(--text-accent);
 	-webkit-text-fill-color: var(--text-accent);
 	opacity: 1;
 }
 
+.glean-review-field.is-wrong .glean-review-input {
+	border-color: var(--text-error);
+	animation: glean-review-shake 220ms ease;
+}
+
+.glean-review-field.is-correct .glean-review-input:disabled {
+	border-color: var(--text-success);
+	-webkit-text-fill-color: var(--text-success);
+}
+
+.glean-review-field.is-revealed .glean-review-input:disabled {
+	border-color: var(--text-warning);
+	-webkit-text-fill-color: var(--text-warning);
+}
+
+@keyframes glean-review-shake {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+	25% {
+		transform: translateX(-5px);
+	}
+	75% {
+		transform: translateX(5px);
+	}
+}
+
 .glean-review-feedback {
 	display: flex;
 	align-items: baseline;
+	justify-content: center;
 	gap: 10px;
-	min-height: 1.6em;
-	font-size: 14px;
+	min-height: 1.5em;
+	font-size: 13px;
 }
 
 .glean-review-feedback.is-wrong {
 	color: var(--text-error);
 }
 
-.glean-review-feedback.is-correct .glean-review-answer {
-	color: var(--text-success);
-}
-
-.glean-review-feedback.is-revealed .glean-review-answer {
-	color: var(--text-warning);
-}
-
-.glean-review-answer {
-	font-size: 17px;
-	font-weight: 600;
-}
-
 .glean-review-verdict {
-	color: var(--text-muted);
+	color: var(--text-faint);
 }
 
 .glean-review-actions {
 	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+}
+
+.glean-review-ghost {
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.glean-review-ghost:hover {
+	background: transparent;
+	color: var(--text-normal);
+	text-decoration: underline;
+}
+
+.glean-review-hint {
+	color: var(--text-faint);
+	font-size: 12px;
+}
+
+/* ---- 开始 / 结束 ---- */
+
+/* Auto block margins absorb the leftover column space, so the start and
+   finish screens sit centred instead of clinging to the top. */
+.glean-review-start {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	margin-block: auto;
+	padding: 28px;
+	text-align: center;
+}
+
+.glean-review-count {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.glean-review-count-number {
+	color: var(--text-accent);
+	font-size: 52px;
+	font-weight: 700;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+
+.glean-review-count-unit {
+	color: var(--text-muted);
+	font-size: 17px;
+}
+
+.glean-review-title {
+	font-size: 21px;
+	font-weight: 600;
+}
+
+.glean-review-lede {
+	color: var(--text-muted);
+	font-size: 14px;
+}
+
+.glean-review-note {
+	color: var(--text-faint);
+	font-size: 13px;
+}
+
+.glean-review-start-btn {
+	margin-top: 10px;
+	padding: 9px 28px;
+	border-radius: 8px;
+	font-size: 15px;
+}
+
+.glean-review-scores {
+	display: flex;
 	gap: 10px;
+	margin: 6px 0 4px;
+}
+
+.glean-review-score {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 84px;
+	padding: 14px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+}
+
+.glean-review-score-value {
+	font-size: 26px;
+	font-weight: 700;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+
+.glean-review-score-label {
+	color: var(--text-faint);
+	font-size: 12px;
+}
+
+.glean-review-score.is-good .glean-review-score-value {
+	color: var(--text-success);
+}
+
+.glean-review-score.is-hard .glean-review-score-value {
+	color: var(--text-warning);
+}
+
+.glean-review-score.is-again .glean-review-score-value {
+	color: var(--text-error);
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.glean-review-track-fill,
+	.glean-review-input {
+		transition: none;
+	}
+
+	.glean-review-field.is-wrong .glean-review-input {
+		animation: none;
+	}
+
 	.glean-btn,
 	.glean-dict-cell,
 	.glean-cue,

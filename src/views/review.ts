@@ -4,7 +4,9 @@ import type GleanPlugin from '../main';
 import {
 	buildReviewQueue,
 	parseReviewPrompt,
+	parseSense,
 	reviewQueueStats,
+	splitOnBlank,
 	type ReviewCard,
 	type ReviewPrompt,
 } from '../review/queue';
@@ -118,8 +120,9 @@ export class ReviewView extends ItemView {
 		const panel = container.createDiv({ cls: 'glean-review-start' });
 
 		if (all.length === 0) {
-			panel.createEl('h3', { text: '生词库还是空的' });
-			panel.createEl('p', {
+			panel.createDiv({ cls: 'glean-review-title', text: '生词库还是空的' });
+			panel.createDiv({
+				cls: 'glean-review-lede',
 				text: '在精听或阅读里点词加入生词库，之后就能在这里复习。',
 			});
 			return;
@@ -129,8 +132,9 @@ export class ReviewView extends ItemView {
 			const next = [...all].sort((left, right) =>
 				left.review.due.localeCompare(right.review.due),
 			)[0];
-			panel.createEl('h3', { text: '今天没有要复习的词' });
-			panel.createEl('p', {
+			panel.createDiv({ cls: 'glean-review-title', text: '今天没有要复习的词' });
+			panel.createDiv({
+				cls: 'glean-review-lede',
 				text: next
 					? `下一批在${describeDue(next.review, this.today)}，共 ${all.length} 张卡在库。`
 					: `共 ${all.length} 张卡在库。`,
@@ -138,7 +142,10 @@ export class ReviewView extends ItemView {
 			return;
 		}
 
-		panel.createEl('h3', { text: `${stats.due} 张待复习` });
+		const count = panel.createDiv({ cls: 'glean-review-count' });
+		count.createSpan({ cls: 'glean-review-count-number', text: String(stats.due) });
+		count.createSpan({ cls: 'glean-review-count-unit', text: '张待复习' });
+
 		const detail: string[] = [];
 		if (stats.fresh > 0) {
 			detail.push(`${stats.fresh} 张新词`);
@@ -147,20 +154,20 @@ export class ReviewView extends ItemView {
 			detail.push(`${stats.overdue} 张已过期`);
 		}
 		if (detail.length > 0) {
-			panel.createEl('p', { text: detail.join('，') });
+			panel.createDiv({ cls: 'glean-review-lede', text: detail.join('，') });
 		}
 
 		const limit = this.plugin.settings.reviewDailyLimit;
 		const planned = buildReviewQueue(all, { today: this.today, limit });
 		if (limit > 0 && stats.due > planned.length) {
-			panel.createEl('p', {
+			panel.createDiv({
 				cls: 'glean-review-note',
 				text: `这次先过 ${planned.length} 张，上限可以在设置里调。`,
 			});
 		}
 
 		const start = panel.createEl('button', {
-			cls: 'mod-cta',
+			cls: 'mod-cta glean-review-start-btn',
 			text: '开始复习',
 		});
 		start.addEventListener('click', () => {
@@ -203,6 +210,11 @@ export class ReviewView extends ItemView {
 		const container = this.contentEl;
 		container.empty();
 
+		const done = this.index + (this.phase === 'answered' ? 1 : 0);
+		const track = container.createDiv({ cls: 'glean-review-track' });
+		const fill = track.createDiv({ cls: 'glean-review-track-fill' });
+		fill.style.width = `${(done / this.queue.length) * 100}%`;
+
 		const header = container.createDiv({ cls: 'glean-review-header' });
 		header.createSpan({
 			cls: 'glean-review-progress',
@@ -217,29 +229,44 @@ export class ReviewView extends ItemView {
 			void this.plugin.openWordNotePath(card.path);
 		});
 
-		this.bodyEl = container.createDiv({ cls: 'glean-review-body' });
+		this.bodyEl = container.createDiv({ cls: 'glean-review-card' });
 		const body = this.bodyEl;
 
 		if (this.prompt.senses.length > 0) {
-			const senses = body.createEl('ul', { cls: 'glean-review-senses' });
+			const senses = body.createDiv({ cls: 'glean-review-senses' });
 			for (const sense of this.prompt.senses) {
-				senses.createEl('li', { text: sense });
+				const { pos, gloss } = parseSense(sense);
+				const row = senses.createDiv({ cls: 'glean-review-sense' });
+				// Keep the column even when a gloss carries no marker, so the
+				// meanings stay left-aligned with each other.
+				row.createSpan({ cls: 'glean-review-pos', text: pos });
+				row.createSpan({ cls: 'glean-review-gloss', text: gloss });
 			}
 		} else {
-			body.createEl('p', {
+			body.createDiv({
 				cls: 'glean-review-note',
 				text: '这张卡还没有释义，凭例句回忆。',
 			});
 		}
 
 		if (this.prompt.sentence) {
-			body.createEl('blockquote', {
-				cls: 'glean-review-sentence',
-				text: this.prompt.sentence,
+			const sentence = body.createDiv({ cls: 'glean-review-sentence' });
+			const runs = splitOnBlank(this.prompt.sentence);
+			runs.forEach((run, index) => {
+				if (run) {
+					sentence.createSpan({ text: run });
+				}
+				if (index < runs.length - 1) {
+					sentence.createSpan({
+						cls: 'glean-review-blank',
+						text: this.phase === 'answered' ? card.lemma : '',
+					});
+				}
 			});
 		}
 
-		const input = body.createEl('input', {
+		const field = body.createDiv({ cls: 'glean-review-field' });
+		const input = field.createEl('input', {
 			cls: 'glean-review-input',
 			attr: {
 				type: 'text',
@@ -258,16 +285,17 @@ export class ReviewView extends ItemView {
 			}
 		});
 
-		const feedback = body.createDiv({ cls: 'glean-review-feedback' });
+		const feedback = field.createDiv({ cls: 'glean-review-feedback' });
 		if (this.phase === 'wrong') {
+			field.addClass('is-wrong');
 			feedback.addClass('is-wrong');
 			feedback.setText('再试一次');
 		}
 		if (this.phase === 'answered' && this.result) {
+			field.addClass(this.revealed ? 'is-revealed' : 'is-correct');
 			feedback.addClass(this.revealed ? 'is-revealed' : 'is-correct');
-			feedback.createSpan({ cls: 'glean-review-answer', text: card.lemma });
-			// Say how it was scored and when it returns, so the schedule does
-			// not feel arbitrary.
+			// The word already shows in the blank and the input; repeating it
+			// here a third time is noise. Only the verdict adds anything.
 			feedback.createSpan({
 				cls: 'glean-review-verdict',
 				text: `${GRADE_LABELS[this.result.grade]} · ${describeDue(this.result.next, this.today)}再见`,
@@ -286,8 +314,12 @@ export class ReviewView extends ItemView {
 			next.focus();
 			input.disabled = true;
 			input.value = card.lemma;
+			actions.createSpan({ cls: 'glean-review-hint', text: '回车继续' });
 		} else {
-			const reveal = actions.createEl('button', { text: '不会，看答案' });
+			const reveal = actions.createEl('button', {
+				cls: 'glean-review-ghost',
+				text: '不会，看答案',
+			});
 			reveal.addEventListener('click', () => {
 				void this.revealAnswer();
 			});
@@ -379,19 +411,26 @@ export class ReviewView extends ItemView {
 		const container = this.contentEl;
 		container.empty();
 		const panel = container.createDiv({ cls: 'glean-review-start' });
-		panel.createEl('h3', { text: '这轮复习完成' });
-		panel.createEl('p', {
-			text: `${this.tally.total} 张：记住 ${this.tally.good}，犹豫 ${this.tally.hard}，没记住 ${this.tally.again}。`,
-		});
+		panel.createDiv({ cls: 'glean-review-title', text: '这轮复习完成' });
+
+		const scores = panel.createDiv({ cls: 'glean-review-scores' });
+		const score = (label: string, value: number, tone: string) => {
+			const cell = scores.createDiv({ cls: `glean-review-score is-${tone}` });
+			cell.createSpan({ cls: 'glean-review-score-value', text: String(value) });
+			cell.createSpan({ cls: 'glean-review-score-label', text: label });
+		};
+		score('记住', this.tally.good, 'good');
+		score('犹豫', this.tally.hard, 'hard');
+		score('没记住', this.tally.again, 'again');
 
 		const remaining = reviewQueueStats(this.cards(), this.today).due;
 		if (remaining > 0) {
-			panel.createEl('p', {
-				cls: 'glean-review-note',
+			panel.createDiv({
+				cls: 'glean-review-lede',
 				text: `还剩 ${remaining} 张今天到期。`,
 			});
 			const again = panel.createEl('button', {
-				cls: 'mod-cta',
+				cls: 'mod-cta glean-review-start-btn',
 				text: '接着复习',
 			});
 			again.addEventListener('click', () => {
@@ -399,7 +438,7 @@ export class ReviewView extends ItemView {
 			});
 			again.focus();
 		} else {
-			panel.createEl('p', { cls: 'glean-review-note', text: '今天的词都过完了。' });
+			panel.createDiv({ cls: 'glean-review-lede', text: '今天的词都过完了。' });
 		}
 	}
 }

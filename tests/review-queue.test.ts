@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	BLANK,
 	buildReviewQueue,
 	dueCards,
 	maskWord,
 	parseReviewPrompt,
+	parseSense,
 	reviewQueueStats,
+	splitOnBlank,
 	type ReviewCard,
 } from '../src/review/queue';
 import { DEFAULT_EASE, type ReviewState } from '../src/review/schedule';
@@ -105,7 +108,7 @@ describe('queue selection', () => {
 describe('masking', () => {
 	it('blanks every inflection, longest first', () => {
 		expect(maskWord('He goes where we go.', ['go', 'goes'])).toBe(
-			'He ＿＿＿＿ where we ＿＿＿＿.',
+			`He ${BLANK} where we ${BLANK}.`,
 		);
 	});
 
@@ -115,12 +118,47 @@ describe('masking', () => {
 
 	it('matches regardless of case', () => {
 		expect(maskWord('Went home. We went back.', ['went'])).toBe(
-			'＿＿＿＿ home. We ＿＿＿＿ back.',
+			`${BLANK} home. We ${BLANK} back.`,
 		);
 	});
 
 	it('treats a form with regex characters literally', () => {
-		expect(maskWord('a c++ thing', ['c++'])).toBe('a ＿＿＿＿ thing');
+		expect(maskWord('a c++ thing', ['c++'])).toBe(`a ${BLANK} thing`);
+	});
+
+	it('splits into the runs around each gap', () => {
+		expect(splitOnBlank(maskWord('We went home.', ['went']))).toEqual([
+			'We ',
+			' home.',
+		]);
+	});
+});
+
+describe('sense parsing', () => {
+	it('separates a part-of-speech marker from the meaning', () => {
+		expect(parseSense('n. 支架, 括弧, 托架')).toEqual({
+			pos: 'n.',
+			gloss: '支架, 括弧, 托架',
+		});
+		expect(parseSense('vt. 装托架')).toEqual({ pos: 'vt.', gloss: '装托架' });
+	});
+
+	it('handles a bracketed domain label', () => {
+		expect(parseSense('[计] 方括号; 括号')).toEqual({
+			pos: '[计]',
+			gloss: '方括号; 括号',
+		});
+	});
+
+	it('leaves a bare gloss alone', () => {
+		expect(parseSense('去；离开')).toEqual({ pos: '', gloss: '去；离开' });
+	});
+
+	it('does not mistake an English gloss for a marker', () => {
+		expect(parseSense('move from one place to another')).toEqual({
+			pos: '',
+			gloss: 'move from one place to another',
+		});
 	});
 });
 
@@ -156,7 +194,7 @@ describe('prompt parsing', () => {
 
 	it('picks the example that contains the word and blanks it', () => {
 		expect(parseReviewPrompt(note, ['go', 'went']).sentence).toBe(
-			'We ＿＿＿＿ home.',
+			`We ${BLANK} home.`,
 		);
 	});
 
