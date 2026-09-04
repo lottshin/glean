@@ -19,6 +19,7 @@ import {
 	type TranslationProvider,
 } from './translate/provider';
 import type { SpeakAccent } from './speak/tts';
+import type { SpeakSource } from './speak/community';
 
 export interface GleanSettings {
 	wordsFolder: string;
@@ -36,8 +37,12 @@ export interface GleanSettings {
 	/** Flip a card to 已掌握 once its interval passes the graduation mark. */
 	reviewAutoKnown: boolean;
 	/**
-	 * System TTS accent. `auto` lets the OS pick; there is no bundled audio —
-	 * quality depends on voices installed on the device.
+	 * Where non-clip pronunciation comes from. Community sources need network
+	 * and do not cover every lemma; system TTS remains the offline fallback.
+	 */
+	speakSource: SpeakSource;
+	/**
+	 * Preferred accent for system TTS and for community clips that offer both.
 	 */
 	speakAccent: SpeakAccent;
 	translateEnabled: boolean;
@@ -63,6 +68,7 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	readingHintRank: DEFAULT_READING_HINT_RANK,
 	reviewDailyLimit: 20,
 	reviewAutoKnown: true,
+	speakSource: 'system',
 	speakAccent: 'auto',
 	translateEnabled: false,
 	translateProvider: 'openai',
@@ -274,8 +280,23 @@ export class GleanSettingTab extends PluginSettingTab {
 						},
 					},
 					{
+						name: '朗读来源',
+						desc: '查词和复习用的发音。社区源免 Key、需联网，覆盖不均；失败时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
+						aliases: ['TTS', '发音', '朗读', 'Wiktionary'],
+						control: {
+							type: 'dropdown',
+							key: 'speakSource',
+							defaultValue: DEFAULT_SETTINGS.speakSource,
+							options: {
+								system: '系统朗读',
+								'free-dictionary': 'Free Dictionary（社区）',
+								wiktionary: 'Wiktionary（社区）',
+							},
+						},
+					},
+					{
 						name: '朗读口音',
-						desc: '查词、复习里的系统朗读用哪种英文。精听里若有词级时间戳，会优先播视频原声。没有安装英文语音包时可能听起来不对。',
+						desc: '系统朗读和社区源（有多条时）优先用哪种口音。本机没装英文语音包时，系统朗读可能听起来不对。',
 						aliases: ['TTS', '发音', '朗读'],
 						control: {
 							type: 'dropdown',
@@ -419,6 +440,17 @@ export class GleanSettingTab extends PluginSettingTab {
 		if (key === 'speakAccent') {
 			if (value === 'auto' || value === 'en-US' || value === 'en-GB') {
 				this.plugin.settings.speakAccent = value;
+				await this.plugin.saveSettings();
+			}
+			return;
+		}
+		if (key === 'speakSource') {
+			if (
+				value === 'system' ||
+				value === 'free-dictionary' ||
+				value === 'wiktionary'
+			) {
+				this.plugin.settings.speakSource = value;
 				await this.plugin.saveSettings();
 			}
 			return;
@@ -620,9 +652,34 @@ export class GleanSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('朗读来源')
+			.setDesc(
+				'查词和复习用的发音。社区源免 Key、需联网；失败时退回系统朗读。',
+			)
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOptions({
+						system: '系统朗读',
+						'free-dictionary': 'Free Dictionary（社区）',
+						wiktionary: 'Wiktionary（社区）',
+					})
+					.setValue(this.plugin.settings.speakSource)
+					.onChange(async (value) => {
+						if (
+							value === 'system' ||
+							value === 'free-dictionary' ||
+							value === 'wiktionary'
+						) {
+							this.plugin.settings.speakSource = value;
+							await this.plugin.saveSettings();
+						}
+					});
+			});
+
+		new Setting(containerEl)
 			.setName('朗读口音')
 			.setDesc(
-				'查词、复习里的系统朗读用哪种英文。精听里若有词级时间戳，会优先播视频原声。',
+				'系统朗读和社区源（有多条时）优先用哪种口音。',
 			)
 			.addDropdown((dropdown) => {
 				dropdown

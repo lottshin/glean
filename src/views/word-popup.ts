@@ -2,7 +2,7 @@ import { setIcon } from 'obsidian';
 import type { DictionaryLookup } from '../dictionary';
 import type { WordStatus } from '../lexicon/note';
 import type { SaveWordResult } from '../lexicon/store';
-import { stopSpeech } from '../speak/tts';
+import { stopAllSpeech } from '../speak/player';
 
 export interface WordLookupContext {
 	lookupId: number;
@@ -112,7 +112,7 @@ export class GleanWordPopover {
 		if (!context && !this.popoverEl) {
 			return;
 		}
-		stopSpeech();
+		stopAllSpeech();
 		this.removeListeners?.();
 		this.removeListeners = null;
 		this.popoverEl?.remove();

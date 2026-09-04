@@ -49,7 +49,7 @@ import {
 } from '../import/receiver';
 import { youtubeSourcePath } from '../youtube/id';
 import { isGleanSegmentedSubtitles, refineCaptionCues } from '../youtube/vtt';
-import { stopSpeech } from '../speak/tts';
+import { stopAllSpeech } from '../speak/player';
 import { wordClipWindow } from '../speak/word-clip';
 import { GleanWordPopover } from './word-popup';
 export const LISTEN_VIEW_TYPE = 'glean-listen';
@@ -1706,7 +1706,7 @@ export class ListenView extends ItemView {
 		wordIndex: number,
 		text: string,
 	): Promise<boolean> {
-		stopSpeech();
+		stopAllSpeech();
 		const clip = wordClipWindow(cue, wordIndex);
 		if (!clip) {
 			await this.plugin.speakWord(text);

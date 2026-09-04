@@ -46,7 +46,16 @@ import { REVIEW_VIEW_TYPE, ReviewView } from './views/review';
 import type { ReviewCard } from './review/queue';
 import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
-import { speakWithTts, stopSpeech } from './speak/tts';
+import { speakWithTts } from './speak/tts';
+import {
+	resolveCommunityAudio,
+	type SpeakFetcher,
+} from './speak/community';
+import {
+	guessAudioMime,
+	playAudioBuffer,
+	stopAllSpeech,
+} from './speak/player';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
 
@@ -406,19 +415,62 @@ export default class GleanPlugin extends Plugin {
 	}
 
 	/**
-	 * System TTS for a lemma/surface. Listen view prefers a media clip and
-	 * only falls through here when word clocks are missing.
+	 * Pronounce a lemma/surface. Prefer community audio when configured,
+	 * otherwise system TTS. Listen view still prefers a media clip first.
 	 */
 	async speakWord(text: string): Promise<void> {
+		const trimmed = text.trim();
+		if (!trimmed) {
+			return;
+		}
 		try {
-			await speakWithTts(text, this.settings.speakAccent);
+			if (this.settings.speakSource !== 'system') {
+				const played = await this.speakCommunityWord(trimmed);
+				if (played) {
+					return;
+				}
+			}
+			await speakWithTts(trimmed, this.settings.speakAccent);
 		} catch (error) {
 			new Notice(error instanceof Error ? error.message : '朗读失败');
 		}
 	}
 
+	private communityFetcher(): SpeakFetcher {
+		return async (url) => {
+			const response = await requestUrl({ url, throw: false });
+			let json: unknown = null;
+			try {
+				json = response.json;
+			} catch {
+				json = null;
+			}
+			return { status: response.status, json };
+		};
+	}
+
+	private async speakCommunityWord(text: string): Promise<boolean> {
+		const hit = await resolveCommunityAudio(
+			this.settings.speakSource,
+			text,
+			this.settings.speakAccent,
+			this.communityFetcher(),
+		);
+		if (!hit) {
+			new Notice('社区源没有这个词的发音，改用系统朗读');
+			return false;
+		}
+		const audio = await requestUrl({ url: hit.url, throw: false });
+		if (audio.status < 200 || audio.status >= 300) {
+			new Notice(`社区音频下载失败（${audio.status}），改用系统朗读`);
+			return false;
+		}
+		await playAudioBuffer(audio.arrayBuffer, guessAudioMime(hit.url));
+		return true;
+	}
+
 	stopSpeaking(): void {
-		stopSpeech();
+		stopAllSpeech();
 	}
 
 	refreshReadingViews(): void {
