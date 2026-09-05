@@ -61,6 +61,11 @@ import {
 	stopAllSpeech,
 } from './speak/player';
 import { speakWithTts, type SpeakAccent } from './speak/tts';
+import {
+	YOUDAO_TTS_URL,
+	buildYoudaoTtsForm,
+	parseYoudaoTtsResponse,
+} from './speak/youdao';
 import { parseYouTubeSourcePath } from './youtube/id';
 import type { BilibiliSession } from './bilibili/session';
 
@@ -425,14 +430,19 @@ export default class GleanPlugin extends Plugin {
 	 */
 	async speakWord(
 		text: string,
-		accent: SpeakAccent = this.settings.speakAccent,
+		accent: SpeakAccent = 'en-US',
 	): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed) {
 			return;
 		}
 		try {
-			if (this.settings.speakSource !== 'system') {
+			if (this.settings.speakSource === 'youdao') {
+				const played = await this.speakYoudaoWord(trimmed, accent);
+				if (played) {
+					return;
+				}
+			} else if (this.settings.speakSource !== 'system') {
 				const played = await this.speakCommunityWord(trimmed, accent);
 				if (played) {
 					return;
@@ -478,6 +488,45 @@ export default class GleanPlugin extends Plugin {
 			}
 			return { status: response.status, json };
 		};
+	}
+
+	private async speakYoudaoWord(
+		text: string,
+		accent: SpeakAccent,
+	): Promise<boolean> {
+		const appKey = this.settings.youdaoAppKey.trim();
+		const appSecret = this.settings.youdaoAppSecret.trim();
+		if (!appKey || !appSecret) {
+			new Notice('请先在设置里填写有道应用 ID 和密钥');
+			return false;
+		}
+		const body = await buildYoudaoTtsForm(text, accent, { appKey, appSecret });
+		const response = await requestUrl({
+			url: YOUDAO_TTS_URL,
+			method: 'POST',
+			contentType: 'application/x-www-form-urlencoded',
+			body: body.toString(),
+			throw: false,
+		});
+		if (response.status === 429 || response.status === 503) {
+			new Notice('有道暂时限流，已改用系统朗读');
+			return false;
+		}
+		const contentType =
+			response.headers['content-type'] ??
+			response.headers['Content-Type'] ??
+			'';
+		const parsed = parseYoudaoTtsResponse(
+			contentType,
+			response.text,
+			response.arrayBuffer,
+		);
+		if (parsed.status !== 'ok') {
+			new Notice(`${parsed.message}，已改用系统朗读`);
+			return false;
+		}
+		await playAudioBuffer(parsed.data, 'audio/mpeg');
+		return true;
 	}
 
 	private async speakCommunityWord(

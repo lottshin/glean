@@ -18,7 +18,6 @@ import {
 	TranslationError,
 	type TranslationProvider,
 } from './translate/provider';
-import type { SpeakAccent } from './speak/tts';
 import type { SpeakSource } from './speak/community';
 
 export interface GleanSettings {
@@ -41,10 +40,8 @@ export interface GleanSettings {
 	 * and do not cover every lemma; system TTS remains the offline fallback.
 	 */
 	speakSource: SpeakSource;
-	/**
-	 * Preferred accent for system TTS and for community clips that offer both.
-	 */
-	speakAccent: SpeakAccent;
+	youdaoAppKey: string;
+	youdaoAppSecret: string;
 	translateEnabled: boolean;
 	translateProvider: TranslationProvider;
 	translateApiKey: string;
@@ -69,7 +66,8 @@ export const DEFAULT_SETTINGS: GleanSettings = {
 	reviewDailyLimit: 20,
 	reviewAutoKnown: true,
 	speakSource: 'system',
-	speakAccent: 'auto',
+	youdaoAppKey: '',
+	youdaoAppSecret: '',
 	translateEnabled: false,
 	translateProvider: 'openai',
 	translateApiKey: '',
@@ -281,32 +279,42 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '朗读来源',
-						desc: '查词和复习用的发音。社区源免 Key、需联网，覆盖不均且可能限流；失败或限流时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
-						aliases: ['TTS', '发音', '朗读', 'Wiktionary'],
+						desc: '查词和复习用的发音。有道需自备应用 ID 和密钥；社区源免 Key 但不稳。失败时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
+						aliases: ['TTS', '发音', '朗读', 'Wiktionary', '有道'],
 						control: {
 							type: 'dropdown',
 							key: 'speakSource',
 							defaultValue: DEFAULT_SETTINGS.speakSource,
 							options: {
 								system: '系统朗读',
+								youdao: '有道词典发音',
 								'free-dictionary': 'Free Dictionary（社区）',
 								wiktionary: 'Wiktionary（社区）',
 							},
 						},
 					},
 					{
-						name: '朗读口音',
-						desc: '社区源只有一条、或系统朗读兜底时的默认偏好。词卡上的「美 / 英」按钮会直接指定口音。',
-						aliases: ['TTS', '发音', '朗读'],
+						name: '有道应用 ID',
+						desc: '控制台里的 App Key。只存在本机插件数据里。',
+						aliases: ['有道', 'TTS'],
+						visible: () => this.plugin.settings.speakSource === 'youdao',
 						control: {
-							type: 'dropdown',
-							key: 'speakAccent',
-							defaultValue: DEFAULT_SETTINGS.speakAccent,
-							options: {
-								auto: '系统默认',
-								'en-US': '美式',
-								'en-GB': '英式',
-							},
+							type: 'text',
+							key: 'youdaoAppKey',
+							defaultValue: '',
+							placeholder: '应用 ID',
+						},
+					},
+					{
+						name: '有道应用密钥',
+						desc: '控制台里的 App Secret。不要发到聊天或公开仓库。',
+						aliases: ['有道', 'TTS'],
+						visible: () => this.plugin.settings.speakSource === 'youdao',
+						control: {
+							type: 'text',
+							key: 'youdaoAppSecret',
+							defaultValue: '',
+							placeholder: '应用密钥',
 						},
 					},
 				],
@@ -437,22 +445,23 @@ export class GleanSettingTab extends PluginSettingTab {
 			await this.plugin.saveSettings();
 			return;
 		}
-		if (key === 'speakAccent') {
-			if (value === 'auto' || value === 'en-US' || value === 'en-GB') {
-				this.plugin.settings.speakAccent = value;
-				await this.plugin.saveSettings();
-			}
-			return;
-		}
 		if (key === 'speakSource') {
 			if (
 				value === 'system' ||
 				value === 'free-dictionary' ||
-				value === 'wiktionary'
+				value === 'wiktionary' ||
+				value === 'youdao'
 			) {
 				this.plugin.settings.speakSource = value;
 				await this.plugin.saveSettings();
+				this.revealDependentSettings();
 			}
+			return;
+		}
+		if (key === 'youdaoAppKey' || key === 'youdaoAppSecret') {
+			const next = typeof value === 'string' ? value.trim() : '';
+			this.plugin.settings[key] = next;
+			await this.plugin.saveSettings();
 			return;
 		}
 		if (key === 'youtubeReceiverEnabled') {
@@ -654,12 +663,13 @@ export class GleanSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('朗读来源')
 			.setDesc(
-				'查词和复习用的发音。社区源免 Key、需联网；失败时退回系统朗读。',
+				'查词和复习用的发音。有道需自备 Key；社区源免 Key 但不稳。失败时退回系统朗读。',
 			)
 			.addDropdown((dropdown) => {
 				dropdown
 					.addOptions({
 						system: '系统朗读',
+						youdao: '有道词典发音',
 						'free-dictionary': 'Free Dictionary（社区）',
 						wiktionary: 'Wiktionary（社区）',
 					})
@@ -668,34 +678,43 @@ export class GleanSettingTab extends PluginSettingTab {
 						if (
 							value === 'system' ||
 							value === 'free-dictionary' ||
-							value === 'wiktionary'
+							value === 'wiktionary' ||
+							value === 'youdao'
 						) {
 							this.plugin.settings.speakSource = value;
 							await this.plugin.saveSettings();
+							this.display();
 						}
 					});
 			});
 
-		new Setting(containerEl)
-			.setName('朗读口音')
-			.setDesc(
-				'社区源只有一条、或系统朗读兜底时的默认偏好。词卡上的「美 / 英」会直接指定口音。',
-			)
-			.addDropdown((dropdown) => {
-				dropdown
-					.addOptions({
-						auto: '系统默认',
-						'en-US': '美式',
-						'en-GB': '英式',
-					})
-					.setValue(this.plugin.settings.speakAccent)
-					.onChange(async (value) => {
-						if (value === 'auto' || value === 'en-US' || value === 'en-GB') {
-							this.plugin.settings.speakAccent = value;
+		if (this.plugin.settings.speakSource === 'youdao') {
+			new Setting(containerEl)
+				.setName('有道应用 ID')
+				.setDesc('控制台里的 App Key。只存在本机插件数据里。')
+				.addText((text) =>
+					text
+						.setPlaceholder('应用 ID')
+						.setValue(this.plugin.settings.youdaoAppKey)
+						.onChange(async (value) => {
+							this.plugin.settings.youdaoAppKey = value.trim();
 							await this.plugin.saveSettings();
-						}
-					});
-			});
+						}),
+				);
+			new Setting(containerEl)
+				.setName('有道应用密钥')
+				.setDesc('控制台里的 App Secret。不要发到聊天或公开仓库。')
+				.addText((text) => {
+					text.inputEl.type = 'password';
+					text
+						.setPlaceholder('应用密钥')
+						.setValue(this.plugin.settings.youdaoAppSecret)
+						.onChange(async (value) => {
+							this.plugin.settings.youdaoAppSecret = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+		}
 
 		new Setting(containerEl).setName('浏览器采集接收端').setHeading();
 
