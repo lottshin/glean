@@ -1,6 +1,8 @@
 import type { DictionaryLookup } from '../dictionary';
 import type { WordStatus } from '../lexicon/note';
 import type { SaveWordResult } from '../lexicon/store';
+import { renderAccentPhoneticRows } from '../speak/accent-row';
+import type { AccentPhonetics } from '../speak/community';
 import { stopAllSpeech } from '../speak/player';
 
 export interface WordLookupContext {
@@ -20,6 +22,8 @@ export interface WordLookupContext {
 		lookup: DictionaryLookup | null,
 		accent: 'en-US' | 'en-GB',
 	) => Promise<boolean>;
+	/** Optional US/UK IPA enrichment (Free Dictionary). */
+	onLoadPhonetics?: (lemma: string) => Promise<AccentPhonetics | null>;
 	onDismiss: (lookupId: number) => void;
 	onSave: (lookup: DictionaryLookup | null) => Promise<SaveWordResult>;
 	onRemove: (lookup: DictionaryLookup | null) => Promise<boolean>;
@@ -42,6 +46,7 @@ export class GleanWordPopover {
 	private removeListeners: (() => void) | null = null;
 	private saveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
 	private removeState: 'idle' | 'removing' | 'error' = 'idle';
+	private phoneticsToken = 0;
 
 	open(anchor: HTMLElement, context: WordLookupContext): void {
 		this.close();
@@ -164,29 +169,32 @@ export class GleanWordPopover {
 
 		if (context.lookup === undefined) {
 			popover.createDiv({ cls: 'glean-word-popover-pending', text: '正在查询…' });
-			this.renderSpeakLinks(popover);
+			this.renderPhoneticSpeak(
+				popover.createDiv({ cls: 'glean-word-popover-phonetic-row' }),
+				'',
+			);
 		} else if (context.lookup === null) {
 			popover.createDiv({
 				cls: 'glean-word-popover-pending',
 				text: '未安装离线词典，请在 Glean 设置中选择词典目录。',
 			});
-			this.renderSpeakLinks(popover);
+			this.renderPhoneticSpeak(
+				popover.createDiv({ cls: 'glean-word-popover-phonetic-row' }),
+				'',
+			);
 		} else if (!context.lookup.entry) {
 			popover.createDiv({
 				cls: 'glean-word-popover-pending',
 				text: '离线词典未收录这个词。',
 			});
-			this.renderSpeakLinks(popover);
+			this.renderPhoneticSpeak(
+				popover.createDiv({ cls: 'glean-word-popover-phonetic-row' }),
+				'',
+			);
 		} else {
 			const entry = context.lookup.entry;
 			const phoneticRow = popover.createDiv({ cls: 'glean-word-popover-phonetic-row' });
-			if (entry.phonetic) {
-				phoneticRow.createSpan({
-					cls: 'glean-word-popover-phonetic',
-					text: `/${entry.phonetic.replace(/^\/|\/$/g, '')}/`,
-				});
-			}
-			this.renderSpeakLinks(phoneticRow);
+			this.renderPhoneticSpeak(phoneticRow, entry.phonetic ?? '');
 			if (entry.pos) {
 				popover.createDiv({ cls: 'glean-word-popover-pos', text: entry.pos });
 			}
@@ -269,30 +277,36 @@ export class GleanWordPopover {
 		});
 	}
 
-	private renderSpeakLinks(parent: HTMLElement): void {
-		const group = parent.createDiv({ cls: 'glean-speak-links' });
-		this.addSpeakButton(group, 'en-US', '美音');
-		this.addSpeakButton(group, 'en-GB', '英音');
-	}
-
-	private addSpeakButton(
-		parent: HTMLElement,
-		accent: 'en-US' | 'en-GB',
-		label: string,
-	): void {
-		const button = parent.createEl('button', {
-			cls: 'glean-speak-link',
-			text: label,
-			attr: {
-				type: 'button',
-				'aria-label': label,
-				title: label,
-			},
-		});
-		button.addEventListener('click', (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.speak(accent);
+	private renderPhoneticSpeak(parent: HTMLElement, fallbackPhonetic: string): void {
+		const host = {
+			onSpeak: (accent: 'en-US' | 'en-GB') => this.speak(accent),
+		};
+		renderAccentPhoneticRows(
+			parent,
+			{ us: null, gb: null },
+			host,
+			fallbackPhonetic,
+		);
+		const context = this.context;
+		const lemma =
+			context?.lookup?.lemma ??
+			context?.lookup?.surface ??
+			context?.word ??
+			'';
+		if (!context?.onLoadPhonetics || !lemma.trim()) {
+			return;
+		}
+		const token = ++this.phoneticsToken;
+		void context.onLoadPhonetics(lemma).then((phonetics) => {
+			if (
+				token !== this.phoneticsToken ||
+				!this.popoverEl ||
+				!phonetics ||
+				(!phonetics.us && !phonetics.gb)
+			) {
+				return;
+			}
+			renderAccentPhoneticRows(parent, phonetics, host, fallbackPhonetic);
 		});
 	}
 

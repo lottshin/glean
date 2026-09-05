@@ -1,10 +1,14 @@
 import type { GlossItem, PassageGloss } from '../translate/gloss';
+import { renderAccentPhoneticRows } from '../speak/accent-row';
 
 export interface PassagePanelHost {
 	sourceName: string;
 	canTranslate: () => boolean;
 	onSaveWord: (item: GlossItem, passage: string) => Promise<void>;
 	onSpeakWord: (item: GlossItem, accent: 'en-US' | 'en-GB') => Promise<void>;
+	onLoadPhonetics?: (
+		lemma: string,
+	) => Promise<{ us: string | null; gb: string | null } | null>;
 	onTranslate: (passage: string) => Promise<string>;
 	onClose: () => void;
 }
@@ -228,29 +232,30 @@ export class GleanPassagePanel {
 		if (item.surface.toLowerCase() !== item.lemma.toLowerCase()) {
 			head.createSpan({ cls: 'glean-passage-surface', text: `← ${item.surface}` });
 		}
-		if (item.phonetic) {
-			head.createSpan({
-				cls: 'glean-passage-phonetic',
-				text: `/${item.phonetic.replace(/^\/|\/$/g, '')}/`,
-			});
-		}
-
-		const speak = head.createDiv({ cls: 'glean-speak-links' });
-		for (const [accent, label] of [
-			['en-US', '美音'],
-			['en-GB', '英音'],
-		] as const) {
-			const button = speak.createEl('button', {
-				cls: 'glean-speak-link',
-				text: label,
-				attr: {
-					type: 'button',
-					'aria-label': label,
-					title: label,
-				},
-			});
-			button.addEventListener('click', () => {
-				void host.onSpeakWord(item, accent);
+		const phoneticHost = head.createDiv({ cls: 'glean-passage-phonetics' });
+		const speakHost = {
+			onSpeak: (accent: 'en-US' | 'en-GB') => host.onSpeakWord(item, accent),
+		};
+		renderAccentPhoneticRows(
+			phoneticHost,
+			{ us: null, gb: null },
+			speakHost,
+			item.phonetic,
+		);
+		if (host.onLoadPhonetics) {
+			void host.onLoadPhonetics(item.lemma).then((phonetics) => {
+				if (!phonetics || (!phonetics.us && !phonetics.gb)) {
+					return;
+				}
+				if (!phoneticHost.isConnected) {
+					return;
+				}
+				renderAccentPhoneticRows(
+					phoneticHost,
+					phonetics,
+					speakHost,
+					item.phonetic,
+				);
 			});
 		}
 

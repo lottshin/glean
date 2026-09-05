@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
 	clearCommunityAudioCache,
 	parseFreeDictionaryAudio,
+	parseFreeDictionaryPhonetics,
 	parseWiktionaryFileUrl,
 	parseWiktionaryImageTitles,
 	resolveCommunityAudio,
@@ -63,6 +64,21 @@ describe('free dictionary parsing', () => {
 		expect(
 			parseFreeDictionaryAudio([{ word: 'x', phonetics: [{ audio: '' }] }], 'auto'),
 		).toBeNull();
+	});
+
+	it('splits US and UK IPA from labelled phonetics', () => {
+		expect(parseFreeDictionaryPhonetics(payload)).toEqual({
+			us: 'hɛˈloʊ',
+			gb: 'həˈləʊ',
+		});
+	});
+
+	it('ignores bare IPA without an accent hint', () => {
+		expect(
+			parseFreeDictionaryPhonetics([
+				{ word: 'into', phonetics: [{ text: '/ˈɪntuː/' }] },
+			]),
+		).toEqual({ us: null, gb: null });
 	});
 });
 

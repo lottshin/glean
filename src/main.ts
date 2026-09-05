@@ -48,8 +48,12 @@ import type { ReviewState } from './review/schedule';
 import { parseBilibiliSourcePath } from './bilibili/id';
 import {
 	COMMUNITY_USER_AGENT,
+	forgetCommunityAudioCache,
+	resolveAccentPhonetics,
 	resolveCommunityAudio,
+	type AccentPhonetics,
 	type SpeakFetcher,
+	type SpeakSource,
 } from './speak/community';
 import {
 	guessAudioMime,
@@ -440,6 +444,23 @@ export default class GleanPlugin extends Plugin {
 		}
 	}
 
+	/** Best-effort US/UK IPA from Free Dictionary; null when offline/miss. */
+	async lookupAccentPhonetics(word: string): Promise<AccentPhonetics | null> {
+		const trimmed = word.trim();
+		if (!trimmed) {
+			return null;
+		}
+		try {
+			const lookup = await resolveAccentPhonetics(
+				trimmed,
+				this.communityFetcher(),
+			);
+			return lookup.status === 'hit' ? lookup.phonetics : null;
+		} catch {
+			return null;
+		}
+	}
+
 	private communityFetcher(): SpeakFetcher {
 		return async (url) => {
 			const response = await requestUrl({
@@ -463,36 +484,52 @@ export default class GleanPlugin extends Plugin {
 		text: string,
 		accent: SpeakAccent,
 	): Promise<boolean> {
-		const lookup = await resolveCommunityAudio(
-			this.settings.speakSource,
-			text,
-			accent,
-			this.communityFetcher(),
-		);
-		if (lookup.status === 'rate-limited') {
-			new Notice(`${lookup.source} 暂时限流，已改用系统朗读`);
-			return false;
+		// Free Dictionary's Google CDN audio is often dead; try Wiktionary next.
+		const chain: SpeakSource[] =
+			this.settings.speakSource === 'free-dictionary'
+				? ['free-dictionary', 'wiktionary']
+				: [this.settings.speakSource];
+
+		let rateLimitedSource: string | null = null;
+		for (const source of chain) {
+			if (source === 'system') {
+				continue;
+			}
+			const lookup = await resolveCommunityAudio(
+				source,
+				text,
+				accent,
+				this.communityFetcher(),
+			);
+			if (lookup.status === 'rate-limited') {
+				rateLimitedSource = lookup.source;
+				continue;
+			}
+			if (lookup.status !== 'hit') {
+				continue;
+			}
+			const audio = await requestUrl({
+				url: lookup.hit.url,
+				throw: false,
+				headers: {
+					'User-Agent': COMMUNITY_USER_AGENT,
+				},
+			});
+			if (audio.status === 429 || audio.status === 503) {
+				rateLimitedSource = lookup.hit.source;
+				continue;
+			}
+			if (audio.status < 200 || audio.status >= 300) {
+				forgetCommunityAudioCache(source, text, accent);
+				continue;
+			}
+			await playAudioBuffer(audio.arrayBuffer, guessAudioMime(lookup.hit.url));
+			return true;
 		}
-		if (lookup.status !== 'hit') {
-			// Missing clip is common; fall through to TTS without a toast storm.
-			return false;
+		if (rateLimitedSource) {
+			new Notice(`${rateLimitedSource} 暂时限流，已改用系统朗读`);
 		}
-		const audio = await requestUrl({
-			url: lookup.hit.url,
-			throw: false,
-			headers: {
-				'User-Agent': COMMUNITY_USER_AGENT,
-			},
-		});
-		if (audio.status === 429 || audio.status === 503) {
-			new Notice(`${lookup.hit.source} 暂时限流，已改用系统朗读`);
-			return false;
-		}
-		if (audio.status < 200 || audio.status >= 300) {
-			return false;
-		}
-		await playAudioBuffer(audio.arrayBuffer, guessAudioMime(lookup.hit.url));
-		return true;
+		return false;
 	}
 
 	stopSpeaking(): void {

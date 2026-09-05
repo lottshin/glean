@@ -1132,6 +1132,7 @@ export class ListenView extends ItemView {
 					word;
 				return this.speakLookup(cue, wordIndex, surface, accent);
 			},
+			onLoadPhonetics: async (lemma) => this.plugin.lookupAccentPhonetics(lemma),
 			onSave: async (lookup) => {
 				if (!sourcePath) {
 					throw new Error('没有来源媒体');

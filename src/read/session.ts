@@ -164,6 +164,7 @@ export class ReadingMode {
 				);
 				return true;
 			},
+			onLoadPhonetics: async (lemma) => this.plugin.lookupAccentPhonetics(lemma),
 			onSave: async (lookup) => {
 				const resolved = lookup ?? {
 					surface: word,
@@ -291,6 +292,7 @@ export class ReadingMode {
 			onSpeakWord: async (item, accent) => {
 				await this.plugin.speakWord(item.lemma, accent);
 			},
+			onLoadPhonetics: async (lemma) => this.plugin.lookupAccentPhonetics(lemma),
 			onTranslate: (passage) => this.plugin.translatePassage(passage),
 			onClose: () => this.onPassagePanelClosed(file),
 		});

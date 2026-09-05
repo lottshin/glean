@@ -12,6 +12,7 @@ import {
 } from '../lexicon/catalog';
 import type { WordStatus } from '../lexicon/note';
 import type GleanPlugin from '../main';
+import { renderAccentPhoneticRows } from '../speak/accent-row';
 import { parseBilibiliVideoId, bilibiliSourcePath } from '../bilibili/id';
 import { parseYouTubeVideoId, youtubeSourcePath } from '../youtube/id';
 
@@ -254,12 +255,31 @@ export class LexiconView extends ItemView {
 		});
 		const wordLine = main.createDiv({ cls: 'glean-lexicon-word-line' });
 		wordLine.createSpan({ cls: 'glean-lexicon-lemma', text: card.lemma });
-		if (row.phonetic) {
-			wordLine.createSpan({
-				cls: 'glean-lexicon-phonetic',
-				text: `/${row.phonetic}/`,
-			});
-		}
+		const phoneticHost = wordLine.createDiv({ cls: 'glean-lexicon-phonetics' });
+		const speakHost = {
+			onSpeak: (accent: 'en-US' | 'en-GB') =>
+				this.plugin.speakWord(card.lemma, accent),
+		};
+		renderAccentPhoneticRows(
+			phoneticHost,
+			{ us: null, gb: null },
+			speakHost,
+			row.phonetic,
+		);
+		void this.plugin.lookupAccentPhonetics(card.lemma).then((phonetics) => {
+			if (!phonetics || (!phonetics.us && !phonetics.gb)) {
+				return;
+			}
+			if (!phoneticHost.isConnected) {
+				return;
+			}
+			renderAccentPhoneticRows(
+				phoneticHost,
+				phonetics,
+				speakHost,
+				row.phonetic,
+			);
+		});
 		const detail = main.createDiv({ cls: 'glean-lexicon-detail' });
 		detail.setText(
 			card.forms.length > 0 ? card.forms.slice(0, 3).join(' · ') : '打开词卡',
@@ -269,26 +289,6 @@ export class LexiconView extends ItemView {
 		});
 
 		const controls = item.createDiv({ cls: 'glean-lexicon-controls' });
-		const speakGroup = controls.createDiv({ cls: 'glean-speak-links' });
-		for (const [accent, label] of [
-			['en-US', '美'],
-			['en-GB', '英'],
-		] as const) {
-			const speak = speakGroup.createEl('button', {
-				cls: 'glean-speak-link',
-				text: label,
-				attr: {
-					type: 'button',
-					'aria-label': `${label === '美' ? '美音' : '英音'} ${card.lemma}`,
-					title: label === '美' ? '美音' : '英音',
-				},
-			});
-			speak.addEventListener('click', (event) => {
-				event.stopPropagation();
-				void this.plugin.speakWord(card.lemma, accent);
-			});
-		}
-
 		const status = controls.createEl('select', {
 			cls: `glean-lexicon-status is-${card.status}`,
 			attr: { 'aria-label': `${card.lemma} 的学习状态` },

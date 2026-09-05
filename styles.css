@@ -835,10 +835,41 @@ button.glean-btn.glean-btn-primary:disabled {
 
 .glean-word-popover-phonetic-row {
 	display: flex;
-	align-items: baseline;
-	flex-wrap: wrap;
-	gap: 10px;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
 	margin-top: 4px;
+}
+
+.glean-accent-phonetics {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.glean-accent-phonetic-row {
+	display: grid;
+	grid-template-columns: 1em minmax(0, max-content) 18px;
+	align-items: center;
+	column-gap: 6px;
+	font-size: 12px;
+	line-height: 1.35;
+	color: var(--text-muted);
+}
+
+.glean-accent-label {
+	min-width: 1em;
+	font-size: 11px;
+	line-height: 1;
+	opacity: 0.85;
+}
+
+.glean-accent-ipa,
+.glean-word-popover-phonetic,
+.glean-passage-phonetic,
+.glean-lexicon-phonetic {
+	font-family: var(--font-monospace);
+	line-height: 1;
 }
 
 .glean-speak-links {
@@ -847,7 +878,8 @@ button.glean-btn.glean-btn-primary:disabled {
 	gap: 8px;
 }
 
-button.glean-speak-link {
+button.glean-speak-link,
+button.glean-speak-play {
 	margin: 0;
 	padding: 0;
 	border: none;
@@ -860,10 +892,83 @@ button.glean-speak-link {
 	cursor: pointer;
 }
 
-button.glean-speak-link:hover {
+button.glean-speak-play {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 3px;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	opacity: 0.85;
+	line-height: 0;
+}
+
+button.glean-speak-play .glean-accent-label {
+	min-width: 0;
+	font-size: 11px;
+	line-height: 1;
+}
+
+button.glean-speak-play svg,
+button.glean-speak-play .glean-speak-play-icon svg {
+	width: 14px;
+	height: 14px;
+	display: block;
+}
+
+/* Review header keeps 美/英 beside the speaker. */
+.glean-review-header-actions button.glean-speak-play {
+	width: auto;
+	min-width: 18px;
+}
+
+button.glean-speak-link:hover,
+button.glean-speak-play:hover {
 	color: var(--text-accent-hover, var(--text-accent));
-	text-decoration: underline;
 	background: transparent;
+}
+
+button.glean-speak-link:hover {
+	text-decoration: underline;
+}
+
+button.glean-speak-play:hover {
+	opacity: 1;
+}
+
+button.glean-speak-play.is-playing {
+	opacity: 1;
+}
+
+/* Idle: both arcs visible. Playing: arcs radiate outward in sequence. */
+button.glean-speak-play .glean-speaker-wave {
+	transform-origin: 11px 12px;
+	transform-box: fill-box;
+}
+
+button.glean-speak-play.is-playing .glean-speaker-wave-1 {
+	animation: glean-speak-wave 0.85s ease-out infinite;
+}
+
+button.glean-speak-play.is-playing .glean-speaker-wave-2 {
+	animation: glean-speak-wave 0.85s ease-out infinite;
+	animation-delay: 0.18s;
+}
+
+@keyframes glean-speak-wave {
+	0% {
+		opacity: 0.15;
+		transform: scale(0.82);
+	}
+	35% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	100% {
+		opacity: 0.15;
+		transform: scale(1.12);
+	}
 }
 
 .glean-word-popover-lemma,
@@ -878,7 +983,6 @@ button.glean-speak-link:hover {
 
 .glean-word-popover-phonetic {
 	margin-top: 4px;
-	font-family: var(--font-monospace);
 	font-size: 12px;
 }
 
@@ -1378,8 +1482,13 @@ button.glean-word-popover-remove:hover {
 
 .glean-lexicon-word-line {
 	display: flex;
-	align-items: baseline;
-	gap: 6px;
+	align-items: flex-start;
+	gap: 8px;
+	min-width: 0;
+}
+
+.glean-lexicon-phonetics {
+	flex: 1 1 auto;
 	min-width: 0;
 }
 
@@ -1601,6 +1710,8 @@ button.glean-word-popover-remove:hover {
 
 .glean-review-icon {
 	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	padding: 4px;
 	border: none;
 	border-radius: 6px;
@@ -1610,7 +1721,8 @@ button.glean-word-popover-remove:hover {
 	cursor: pointer;
 }
 
-.glean-review-icon:hover {
+.glean-review-icon:hover,
+.glean-review-icon:active {
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
 }
@@ -1769,7 +1881,8 @@ button.glean-word-popover-remove:hover {
 	cursor: pointer;
 }
 
-.glean-review-ghost:hover {
+.glean-review-ghost:hover,
+.glean-review-ghost:active {
 	background: transparent;
 	color: var(--text-normal);
 	text-decoration: underline;

@@ -1,6 +1,10 @@
 import type { SpeakAccent } from './tts';
 
-export type SpeakSource = 'system' | 'free-dictionary' | 'wiktionary';
+export type SpeakSource =
+	| 'system'
+	| 'free-dictionary'
+	| 'wiktionary'
+	| 'youdao';
 
 export interface SpeakFetchResponse {
 	status: number;
@@ -21,6 +25,17 @@ export type CommunityLookup =
 	| { status: 'miss' }
 	| { status: 'rate-limited'; source: string };
 
+/** US/UK IPA texts when a community dictionary distinguishes them. */
+export interface AccentPhonetics {
+	us: string | null;
+	gb: string | null;
+}
+
+export type PhoneticsLookup =
+	| { status: 'hit'; phonetics: AccentPhonetics }
+	| { status: 'miss' }
+	| { status: 'rate-limited'; source: string };
+
 const FREE_DICTIONARY = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const WIKTIONARY_API = 'https://en.wiktionary.org/w/api.php';
 
@@ -37,12 +52,41 @@ interface CacheEntry {
 	expires: number;
 }
 
+interface PhoneticCacheEntry {
+	phonetics: AccentPhonetics | null;
+	expires: number;
+}
+
 const resolutionCache = new Map<string, CacheEntry>();
+const phoneticCache = new Map<string, PhoneticCacheEntry>();
 let rateLimitedUntil = 0;
 
 export function clearCommunityAudioCache(): void {
 	resolutionCache.clear();
+	phoneticCache.clear();
 	rateLimitedUntil = 0;
+}
+
+/** Drop one cached resolution (e.g. after the audio URL 404s). */
+export function forgetCommunityAudioCache(
+	source: SpeakSource,
+	word: string,
+	accent: SpeakAccent,
+): void {
+	if (source === 'system') {
+		return;
+	}
+	const lemma = word.trim().toLowerCase();
+	if (!lemma) {
+		return;
+	}
+	resolutionCache.delete(cacheKey(source, lemma, accent));
+}
+
+/** Strip wrapping slashes for compact IPA display. */
+export function formatIpa(text: string): string {
+	const bare = text.replace(/^\/+|\/+$/g, '').trim();
+	return bare ? `/${bare}/` : '';
 }
 
 function cacheKey(source: SpeakSource, lemma: string, accent: SpeakAccent): string {
@@ -156,15 +200,17 @@ function pickPreferred(
 	return ranked[0] ?? null;
 }
 
-/** Parse Free Dictionary API JSON into playable audio URLs. */
-export function parseFreeDictionaryAudio(
+function freeDictionaryPhoneticRows(
 	payload: unknown,
-	accent: SpeakAccent,
-): CommunityAudioHit | null {
+): Array<{ text: string; audio: string; accentHint: 'en-US' | 'en-GB' | null }> {
 	if (!Array.isArray(payload)) {
-		return null;
+		return [];
 	}
-	const hits: CommunityAudioHit[] = [];
+	const rows: Array<{
+		text: string;
+		audio: string;
+		accentHint: 'en-US' | 'en-GB' | null;
+	}> = [];
 	for (const entry of payload) {
 		if (!entry || typeof entry !== 'object') {
 			continue;
@@ -177,24 +223,103 @@ export function parseFreeDictionaryAudio(
 			if (!phonetic || typeof phonetic !== 'object') {
 				continue;
 			}
-			const audio = (phonetic as { audio?: unknown }).audio;
-			const text = (phonetic as { text?: unknown }).text;
-			if (typeof audio !== 'string' || !audio.trim()) {
+			const audioRaw = (phonetic as { audio?: unknown }).audio;
+			const textRaw = (phonetic as { text?: unknown }).text;
+			const audio =
+				typeof audioRaw === 'string' ? normalizeAudioUrl(audioRaw) : '';
+			const text =
+				typeof textRaw === 'string'
+					? textRaw.replace(/^\/+|\/+$/g, '').trim()
+					: '';
+			if (!audio && !text) {
 				continue;
 			}
-			const url = normalizeAudioUrl(audio);
-			if (!url) {
-				continue;
-			}
-			const label = `${typeof text === 'string' ? text : ''} ${url}`;
-			hits.push({
-				url,
-				source: 'free-dictionary',
+			const label = `${text} ${audio}`;
+			rows.push({
+				text,
+				audio,
 				accentHint: accentFromHint(label),
 			});
 		}
 	}
+	return rows;
+}
+
+/** Parse Free Dictionary API JSON into playable audio URLs. */
+export function parseFreeDictionaryAudio(
+	payload: unknown,
+	accent: SpeakAccent,
+): CommunityAudioHit | null {
+	const hits: CommunityAudioHit[] = [];
+	for (const row of freeDictionaryPhoneticRows(payload)) {
+		if (!row.audio) {
+			continue;
+		}
+		hits.push({
+			url: row.audio,
+			source: 'free-dictionary',
+			accentHint: row.accentHint,
+		});
+	}
 	return pickPreferred(hits, accent);
+}
+
+/**
+ * Pull labelled US/UK IPA from Free Dictionary. Audio URL hints are the
+ * strongest signal; bare text without an accent tag is ignored for dual display.
+ */
+export function parseFreeDictionaryPhonetics(payload: unknown): AccentPhonetics {
+	let us: string | null = null;
+	let gb: string | null = null;
+	for (const row of freeDictionaryPhoneticRows(payload)) {
+		if (!row.text) {
+			continue;
+		}
+		if (row.accentHint === 'en-US' && !us) {
+			us = row.text;
+		}
+		if (row.accentHint === 'en-GB' && !gb) {
+			gb = row.text;
+		}
+	}
+	return { us, gb };
+}
+
+function readPhoneticCache(
+	lemma: string,
+	now: number,
+): AccentPhonetics | null | undefined {
+	const entry = phoneticCache.get(lemma);
+	if (!entry) {
+		return undefined;
+	}
+	if (entry.expires <= now) {
+		phoneticCache.delete(lemma);
+		return undefined;
+	}
+	return entry.phonetics;
+}
+
+function writePhoneticCache(
+	lemma: string,
+	phonetics: AccentPhonetics | null,
+	now: number,
+): void {
+	const hasAny = Boolean(phonetics?.us || phonetics?.gb);
+	phoneticCache.set(lemma, {
+		phonetics: hasAny ? phonetics : null,
+		expires: now + (hasAny ? CACHE_TTL_MS : MISS_TTL_MS),
+	});
+}
+
+function rememberFreeDictionaryPayload(
+	lemma: string,
+	payload: unknown,
+	now: number,
+): AccentPhonetics {
+	const phonetics = parseFreeDictionaryPhonetics(payload);
+	writePhoneticCache(lemma, phonetics.us || phonetics.gb ? phonetics : null, now);
+	return phonetics;
 }
 
 /** MediaWiki `images` list titles that look like English pronunciation files. */
@@ -341,8 +466,50 @@ export async function resolveFreeDictionaryAudio(
 	if (response.status < 200 || response.status >= 300) {
 		return { status: 'miss' };
 	}
+	rememberFreeDictionaryPayload(lemma, response.json, Date.now());
 	const hit = parseFreeDictionaryAudio(response.json, accent);
 	return hit ? { status: 'hit', hit } : { status: 'miss' };
+}
+
+/** Load US/UK IPA from Free Dictionary (cached; shared with audio lookups). */
+export async function resolveAccentPhonetics(
+	word: string,
+	fetchJson: SpeakFetcher,
+	now: number = Date.now(),
+): Promise<PhoneticsLookup> {
+	const lemma = word.trim().toLowerCase();
+	if (!lemma) {
+		return { status: 'miss' };
+	}
+	if (isRateLimited(now)) {
+		return { status: 'rate-limited', source: 'Free Dictionary' };
+	}
+	const cached = readPhoneticCache(lemma, now);
+	if (cached !== undefined) {
+		return cached
+			? { status: 'hit', phonetics: cached }
+			: { status: 'miss' };
+	}
+
+	const response = await fetchJson(
+		`${FREE_DICTIONARY}/${encodeURIComponent(lemma)}`,
+	);
+	if (response.status === 404) {
+		writePhoneticCache(lemma, null, now);
+		return { status: 'miss' };
+	}
+	if (isRateLimitStatus(response.status)) {
+		markRateLimited(now);
+		return { status: 'rate-limited', source: 'Free Dictionary' };
+	}
+	if (response.status < 200 || response.status >= 300) {
+		writePhoneticCache(lemma, null, now);
+		return { status: 'miss' };
+	}
+	const phonetics = rememberFreeDictionaryPayload(lemma, response.json, now);
+	return phonetics.us || phonetics.gb
+		? { status: 'hit', phonetics }
+		: { status: 'miss' };
 }
 
 export async function resolveWiktionaryAudio(
@@ -403,7 +570,7 @@ export async function resolveCommunityAudio(
 	fetchJson: SpeakFetcher,
 	now: number = Date.now(),
 ): Promise<CommunityLookup> {
-	if (source === 'system') {
+	if (source === 'system' || source === 'youdao') {
 		return { status: 'miss' };
 	}
 	const lemma = word.trim().toLowerCase();
