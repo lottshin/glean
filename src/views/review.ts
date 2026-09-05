@@ -1,6 +1,7 @@
 import { ItemView, Notice, setIcon, type WorkspaceLeaf } from 'obsidian';
 
 import type GleanPlugin from '../main';
+import { mountSpeakerIcon } from '../speak/accent-row';
 import {
 	buildReviewQueue,
 	parseReviewPrompt,
@@ -222,20 +223,33 @@ export class ReviewView extends ItemView {
 			text: `${this.index + 1} / ${this.queue.length}`,
 		});
 		const headerActions = header.createDiv({ cls: 'glean-review-header-actions' });
-		for (const [accent, label] of [
-			['en-US', '美音'],
-			['en-GB', '英音'],
+		for (const [accent, short, aria] of [
+			['en-US', '美', '播放美音'],
+			['en-GB', '英', '播放英音'],
 		] as const) {
 			const speak = headerActions.createEl('button', {
-				cls: 'glean-speak-link',
-				text: label,
+				cls: 'glean-speak-play',
 				attr: {
-					'aria-label': label,
-					title: label,
+					type: 'button',
+					'aria-label': aria,
+					title: aria,
 				},
 			});
+			speak.createSpan({ cls: 'glean-accent-label', text: short });
+			const icon = speak.createSpan({ cls: 'glean-speak-play-icon' });
+			mountSpeakerIcon(icon);
 			speak.addEventListener('click', () => {
-				void this.plugin.speakWord(card.lemma, accent);
+				void (async () => {
+					headerActions
+						.querySelectorAll('.glean-speak-play.is-playing')
+						.forEach((node) => node.removeClass('is-playing'));
+					speak.addClass('is-playing');
+					try {
+						await this.plugin.speakWord(card.lemma, accent);
+					} finally {
+						speak.removeClass('is-playing');
+					}
+				})();
 			});
 		}
 		const openNote = headerActions.createEl('button', {
@@ -293,6 +307,8 @@ export class ReviewView extends ItemView {
 				autocomplete: 'off',
 				autocorrect: 'off',
 				spellcheck: 'false',
+				enterkeyhint: 'go',
+				inputmode: 'text',
 			},
 		});
 		this.inputEl = input;
@@ -323,7 +339,7 @@ export class ReviewView extends ItemView {
 		const actions = container.createDiv({ cls: 'glean-review-actions' });
 		if (this.phase === 'answered') {
 			const next = actions.createEl('button', {
-				cls: 'mod-cta',
+				cls: 'mod-cta glean-review-primary',
 				text: this.index + 1 < this.queue.length ? '下一张' : '完成',
 			});
 			next.addEventListener('click', () => {
@@ -332,8 +348,18 @@ export class ReviewView extends ItemView {
 			next.focus();
 			input.disabled = true;
 			input.value = card.lemma;
-			actions.createSpan({ cls: 'glean-review-hint', text: '回车继续' });
+			actions.createSpan({
+				cls: 'glean-review-hint glean-review-hint-desktop',
+				text: '回车继续',
+			});
 		} else {
+			const submit = actions.createEl('button', {
+				cls: 'mod-cta glean-review-primary',
+				text: '提交',
+			});
+			submit.addEventListener('click', () => {
+				void this.submit();
+			});
 			const reveal = actions.createEl('button', {
 				cls: 'glean-review-ghost',
 				text: '不会，看答案',
