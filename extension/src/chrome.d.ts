@@ -17,6 +17,7 @@ declare const chrome: {
 		};
 	};
 	runtime: {
+		id?: string;
 		lastError?: { message?: string };
 		getURL: (path: string) => string;
 		sendMessage: (message: unknown) => Promise<unknown>;

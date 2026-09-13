@@ -47,6 +47,7 @@
 		filter 120ms ease;
 }
 
+
 .glean-sync-btn:hover .glean-sync-btn__icon {
 	opacity: 1;
 	filter: brightness(1.06);
@@ -58,27 +59,83 @@
 	box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
 }
 
-.glean-sync-btn:focus-visible {
-	outline: none;
-}
-
 .glean-sync-btn:focus-visible .glean-sync-btn__icon {
 	box-shadow:
 		0 0 0 2px #ffffff,
 		0 1px 4px rgb(0 0 0 / 28%);
 }
 
-.glean-sync-btn.is-busy .glean-sync-btn__icon {
+.glean-sync-btn .glean-sync-btn__mark {
+	display: inline-block;
+	width: var(--glean-icon-size);
+	height: var(--glean-icon-size);
+	border-radius: 7px;
+	object-fit: contain;
+	vertical-align: middle;
+	box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+	opacity: 0.96;
+	transition:
+		box-shadow 120ms ease,
+		opacity 120ms ease,
+		transform 60ms ease,
+		filter 120ms ease;
+}
+
+.bpx-player-control-bottom-left .glean-sync-btn__control-icon,
+.bpx-player-control-bottom-right .glean-sync-btn__control-icon {
+	display: block;
+	width: 100%;
+	height: 100%;
+	line-height: inherit;
+	text-align: center;
+	position: relative;
+	user-select: none;
+	-webkit-user-drag: none;
+	vertical-align: top;
+	cursor: pointer;
+}
+
+.bpx-player-control-bottom-left .glean-sync-btn__control-icon .glean-sync-btn__mark,
+.bpx-player-control-bottom-right .glean-sync-btn__control-icon .glean-sync-btn__mark {
+	width: var(--glean-icon-size);
+	height: var(--glean-icon-size);
+	border-radius: 7px;
+	vertical-align: middle;
+}
+
+.bpx-player-control-bottom-left .glean-sync-btn:hover .glean-sync-btn__mark,
+.bpx-player-control-bottom-right .glean-sync-btn:hover .glean-sync-btn__mark {
+	opacity: 1;
+	filter: brightness(1.06);
+	box-shadow: 0 2px 8px rgb(0 0 0 / 34%);
+}
+
+.glean-sync-btn:active .glean-sync-btn__mark {
+	transform: translateY(1px) scale(0.96);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+
+.glean-sync-btn:focus-visible {
+	outline: none;
+}
+
+.glean-sync-btn:focus-visible .glean-sync-btn__mark {
+	box-shadow:
+		0 0 0 2px #ffffff,
+		0 1px 4px rgb(0 0 0 / 28%);
+}
+
+.glean-sync-btn.is-busy .glean-sync-btn__mark {
 	animation: glean-sync-pulse 1s ease-in-out infinite;
 }
 
-.glean-sync-btn.is-done .glean-sync-btn__icon {
+.glean-sync-btn.is-done .glean-sync-btn__mark {
 	box-shadow:
 		0 0 0 2px var(--glean-ring-done),
 		0 1px 4px rgb(0 0 0 / 28%);
 }
 
-.glean-sync-btn.is-error .glean-sync-btn__icon {
+.glean-sync-btn.is-error .glean-sync-btn__mark {
 	box-shadow:
 		0 0 0 2px var(--glean-ring-error),
 		0 1px 4px rgb(0 0 0 / 28%);
@@ -107,16 +164,43 @@
 }
 
 /*
- * Bilibili's control buttons are 22px tall inside a 35px flex row, and they sit
- * against its top edge rather than centred — the row's extra 13px all falls
- * below them. Centring here would drop the tile 6.5px under every native icon.
+ * Bilibili's native controls are top-aligned flex items, not full-height
+ * controls. In normal mode they are 36x22 inside a 35px row; web/fullscreen
+ * mode switches them to 54x43. Keep the injected button on those same tracks
+ * so the image's centre follows the native icon instead of the row centre.
  */
 .bpx-player-control-bottom-left #glean-sync-button.glean-sync-btn,
 .bpx-player-control-bottom-right #glean-sync-button.glean-sync-btn {
-	--glean-icon-size: 20px;
+	--glean-icon-size: 18px;
+	display: block;
+	box-sizing: border-box;
+	width: 36px;
 	height: 22px;
-	align-self: flex-start;
-	padding: 0 5px;
+	align-self: auto;
+	flex: 0 0 auto;
+	padding: 0;
+	margin: 0;
+	line-height: 22px;
+	vertical-align: baseline;
+}
+
+@media screen and (min-width: 750px) {
+	.bpx-player-container[data-screen='full']
+		.bpx-player-control-bottom-left
+		#glean-sync-button.glean-sync-btn,
+	.bpx-player-container[data-screen='web']
+		.bpx-player-control-bottom-left
+		#glean-sync-button.glean-sync-btn,
+	.bpx-player-container[data-screen='full']
+		.bpx-player-control-bottom-right
+		#glean-sync-button.glean-sync-btn,
+	.bpx-player-container[data-screen='web']
+		.bpx-player-control-bottom-right
+		#glean-sync-button.glean-sync-btn {
+		width: 54px;
+		height: 43px;
+		line-height: 32px;
+	}
 }
 
 /* Transient status bubble above the mark. */

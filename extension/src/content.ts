@@ -9,6 +9,7 @@ import {
 	type CaptionTrack,
 	type YouTubeCapture,
 } from './capture';
+import { sendBackground } from './runtime';
 
 const BUTTON_ID = 'glean-sync-button';
 const ICON_CLASS = 'glean-sync-btn__icon';
@@ -32,8 +33,16 @@ function ensurePageBridge(): Promise<void> {
 		return bridgeReady;
 	}
 	bridgeReady = new Promise((resolve, reject) => {
+		let url: string;
+		try {
+			url = chrome.runtime.getURL('page-bridge.js');
+		} catch {
+			bridgeReady = null;
+			reject(new Error('扩展已重载，请刷新这个视频页'));
+			return;
+		}
 		const script = document.createElement('script');
-		script.src = chrome.runtime.getURL('page-bridge.js');
+		script.src = url;
 		script.addEventListener('load', () => {
 			document.documentElement.dataset.gleanBridge = 'ready';
 			script.remove();
@@ -312,14 +321,15 @@ async function segmentCaptionRaw(
 	if (accepted.fmt === 'vtt') {
 		return accepted.raw;
 	}
-	const response = (await chrome.runtime.sendMessage({
+	const response = await sendBackground<{
+		ok?: boolean;
+		vtt?: string;
+		error?: string;
+	}>({
 		type: 'glean-segment-json3',
 		raw: accepted.raw,
 		cacheKey,
-	})) as { ok?: boolean; vtt?: string; error?: string } | undefined;
-	if (chrome.runtime.lastError) {
-		throw new Error(chrome.runtime.lastError.message || '分句进程无响应');
-	}
+	});
 	if (!response?.ok || typeof response.vtt !== 'string') {
 		throw new Error(response?.error ?? '字幕分句失败');
 	}
@@ -419,10 +429,10 @@ async function syncCurrentVideo(
 				vtt,
 			},
 		};
-		const response = (await chrome.runtime.sendMessage(message)) as {
+		const response = await sendBackground<{
 			ok: boolean;
 			error?: string;
-		};
+		}>(message);
 		if (!response?.ok) {
 			throw new Error(response?.error ?? '同步失败');
 		}

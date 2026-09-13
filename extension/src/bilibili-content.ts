@@ -9,6 +9,7 @@ import {
 	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';
+import { sendBackground } from './runtime';
 
 const BUTTON_ID = 'glean-sync-button';
 const DEFAULT_TITLE = '同步英文字幕到 Obsidian Glean';
@@ -32,8 +33,16 @@ function ensurePageBridge(): Promise<void> {
 		return bridgeReady;
 	}
 	bridgeReady = new Promise((resolve, reject) => {
+		let url: string;
+		try {
+			url = chrome.runtime.getURL('page-bridge.js');
+		} catch {
+			bridgeReady = null;
+			reject(new Error('扩展已重载，请刷新这个视频页'));
+			return;
+		}
 		const script = document.createElement('script');
-		script.src = chrome.runtime.getURL('page-bridge.js');
+		script.src = url;
 		script.addEventListener('load', () => {
 			document.documentElement.dataset.gleanBridge = 'ready';
 			script.remove();
@@ -127,12 +136,36 @@ async function getCapture(): Promise<BilibiliCapture | null> {
 
 function createIcon(): HTMLImageElement {
 	const image = document.createElement('img');
-	image.className = 'glean-sync-btn__icon';
+	image.className = 'glean-sync-btn__mark';
 	image.src = chrome.runtime.getURL(BRAND_ICON_PATH);
 	image.alt = '';
 	image.setAttribute('aria-hidden', 'true');
 	image.setAttribute('draggable', 'false');
 	return image;
+}
+
+function appendControlIcon(button: HTMLButtonElement): void {
+	const icon = document.createElement('div');
+	icon.className = 'bpx-player-ctrl-btn-icon glean-sync-btn__control-icon';
+	icon.append(createIcon());
+	button.append(icon);
+}
+
+function normalizeControlIcon(button: HTMLButtonElement): void {
+	if (button.querySelector('.glean-sync-btn__control-icon')) {
+		return;
+	}
+	const legacy = button.querySelector<HTMLImageElement>('.glean-sync-btn__mark, img');
+	button.replaceChildren();
+	if (legacy) {
+		legacy.className = 'glean-sync-btn__mark';
+		const icon = document.createElement('div');
+		icon.className = 'bpx-player-ctrl-btn-icon glean-sync-btn__control-icon';
+		icon.append(legacy);
+		button.append(icon);
+	} else {
+		appendControlIcon(button);
+	}
 }
 
 /**
@@ -145,31 +178,81 @@ function createIcon(): HTMLImageElement {
  */
 function nativeControlAnchor(host: HTMLElement): Element | null {
 	for (const child of Array.from(host.children)) {
-		if (child.classList.contains('bpx-player-ctrl-btn')) {
+		if (
+			child.id !== BUTTON_ID &&
+			child.classList.contains('bpx-player-ctrl-btn')
+		) {
 			return child;
 		}
 	}
 	return null;
 }
 
+function visibleControlHost(): HTMLElement | null {
+	const hosts = Array.from(
+		document.querySelectorAll('.bpx-player-control-bottom-right'),
+	).filter((element): element is HTMLElement => {
+		if (!(element instanceof HTMLElement)) {
+			return false;
+		}
+		const rect = element.getBoundingClientRect();
+		const style = getComputedStyle(element);
+		return (
+			style.display !== 'none' &&
+			style.visibility !== 'hidden' &&
+			rect.width > 0 &&
+			rect.height > 0
+		);
+	});
+	return hosts.sort((left, right) => {
+		const leftRect = left.getBoundingClientRect();
+		const rightRect = right.getBoundingClientRect();
+		return rightRect.width * rightRect.height - leftRect.width * leftRect.height;
+	})[0] ?? null;
+}
+
+function controlHost(): HTMLElement | null {
+	const bottomRight = visibleControlHost();
+	if (bottomRight) {
+		return bottomRight;
+	}
+	const wrap = document.querySelector('.bpx-player-control-wrap');
+	return wrap instanceof HTMLElement ? wrap : null;
+}
+
 function ensureButton(): HTMLButtonElement | null {
 	const existing = document.getElementById(BUTTON_ID);
 	if (existing instanceof HTMLButtonElement) {
+		existing.classList.add('bpx-player-ctrl-btn');
+		normalizeControlIcon(existing);
+		existing.style.removeProperty('height');
+		existing.style.removeProperty('margin-top');
+		// The player builds its control row asynchronously. If the first pass
+		// used the outer wrap as a fallback, move the button into the real right
+		// control row once Bilibili has mounted it so the scoped sizing rules apply.
+		const rightControls = visibleControlHost();
+		if (
+			rightControls &&
+			(existing.parentElement !== rightControls ||
+				existing.nextElementSibling !== nativeControlAnchor(rightControls))
+		) {
+			rightControls.insertBefore(existing, nativeControlAnchor(rightControls));
+		}
 		return existing;
 	}
-	const host =
-		document.querySelector('.bpx-player-control-bottom-right') ??
-		document.querySelector('.bpx-player-control-wrap');
+	const host = controlHost();
 	if (!(host instanceof HTMLElement)) {
 		return null;
 	}
 	const button = document.createElement('button');
 	button.id = BUTTON_ID;
 	button.type = 'button';
-	button.className = 'glean-sync-btn';
+	// Reuse Bilibili's own control-item class so its responsive player CSS owns
+	// height and alignment in normal, web-fullscreen and fullscreen modes.
+	button.className = 'bpx-player-ctrl-btn glean-sync-btn';
 	button.title = DEFAULT_TITLE;
 	button.setAttribute('aria-label', DEFAULT_TITLE);
-	button.append(createIcon());
+	appendControlIcon(button);
 	button.addEventListener('click', (event) => {
 		event.preventDefault();
 		event.stopPropagation();
@@ -227,10 +310,14 @@ async function syncCurrentVideo(
 			throw new Error(noEnglishReason(capture));
 		}
 
-		const vttResult = (await chrome.runtime.sendMessage({
+		const vttResult = await sendBackground<{
+			ok?: boolean;
+			vtt?: string;
+			error?: string;
+		}>({
 			type: 'glean-bilibili-vtt',
 			track,
-		})) as { ok?: boolean; vtt?: string; error?: string };
+		});
 		if (!vttResult?.ok || !vttResult.vtt) {
 			throw new Error(vttResult?.error ?? 'B 站字幕转换失败');
 		}
@@ -240,7 +327,10 @@ async function syncCurrentVideo(
 		const media = await requestMediaTrack(capture.bvid, capture.cid);
 
 		setButtonState(button, '写入 Obsidian…', 'busy');
-		const response = (await chrome.runtime.sendMessage({
+		const response = await sendBackground<{
+			ok?: boolean;
+			error?: string;
+		}>({
 			type: 'glean-sync-bilibili',
 			payload: {
 				bvid: capture.bvid,
@@ -256,7 +346,7 @@ async function syncCurrentVideo(
 				mediaQuality: QUALITY_LABELS[media.quality] ?? '',
 				mediaExpiresAt: media.expiresAt,
 			},
-		})) as { ok?: boolean; error?: string };
+		});
 		if (!response?.ok) {
 			throw new Error(response?.error ?? '同步失败');
 		}
