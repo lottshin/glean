@@ -134,6 +134,7 @@ export class ListenView extends ItemView {
 	private cueListEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
 	private playBtn: HTMLButtonElement | null = null;
+	private loopBtn: HTMLButtonElement | null = null;
 	private modeListenBtn: HTMLButtonElement | null = null;
 	private modeDictBtn: HTMLButtonElement | null = null;
 	private hideBtn: HTMLButtonElement | null = null;
@@ -152,6 +153,7 @@ export class ListenView extends ItemView {
 	 */
 	private bilibiliFallback: BilibiliStream | null = null;
 	private sentenceMode = false;
+	private sentenceLoop = false;
 	/** True only after the playhead has entered the target sentence (avoids seek race). */
 	private sentenceArmed = false;
 	private sentenceStart = 0;
@@ -244,6 +246,7 @@ export class ListenView extends ItemView {
 	}
 
 	async openMedia(state: ListenState): Promise<void> {
+		this.stopSentenceLoop();
 		if (state.kind === 'bilibili') {
 			if (!state.mediaUrl) {
 				this.setStatus('缺少 B 站播放地址');
@@ -306,6 +309,16 @@ export class ListenView extends ItemView {
 			attr: { title: '重听本句 (R)' },
 		});
 		replayBtn.addEventListener('click', () => this.replayCurrent());
+
+		this.loopBtn = transport.createEl('button', {
+			text: '循环',
+			cls: 'glean-btn',
+			attr: {
+				title: '循环当前句',
+				'aria-label': '循环当前句',
+			},
+		});
+		this.loopBtn.addEventListener('click', () => this.toggleSentenceLoop());
 
 		const prevBtn = transport.createEl('button', {
 			text: '上一句',
@@ -458,6 +471,7 @@ export class ListenView extends ItemView {
 		this.bindSource(this.source);
 
 		this.syncModeChrome();
+		this.syncSentenceLoopButton();
 		this.syncMediaChrome();
 		this.contentEl.focus({ preventScroll: true });
 	}
@@ -512,6 +526,7 @@ export class ListenView extends ItemView {
 			return;
 		}
 		this.closeWordLookup();
+		this.stopSentenceLoop();
 		this.mode = mode;
 		if (mode === 'dictation') {
 			this.hidden = true;
@@ -539,6 +554,34 @@ export class ListenView extends ItemView {
 		if (this.hideBtn) {
 			this.hideBtn.toggleClass('is-hidden-ctrl', this.mode !== 'dictation');
 			this.syncHideButton();
+		}
+	}
+
+	private syncSentenceLoopButton(): void {
+		if (!this.loopBtn) {
+			return;
+		}
+		this.loopBtn.toggleClass('is-active-mode', this.sentenceLoop);
+		this.loopBtn.toggleClass('is-sentence-loop', this.sentenceLoop);
+		const label = this.sentenceLoop ? '关闭当前句循环' : '循环当前句';
+		this.loopBtn.setAttr('aria-label', label);
+		this.loopBtn.setAttr('title', label);
+	}
+
+	private stopSentenceLoop(): void {
+		this.sentenceLoop = false;
+		this.syncSentenceLoopButton();
+	}
+
+	private toggleSentenceLoop(): void {
+		if (this.cues.length === 0) {
+			this.setStatus('打开带字幕的媒体后才能循环句子');
+			return;
+		}
+		this.sentenceLoop = !this.sentenceLoop;
+		this.syncSentenceLoopButton();
+		if (this.sentenceLoop) {
+			this.replayCurrent();
 		}
 	}
 
@@ -1675,6 +1718,13 @@ export class ListenView extends ItemView {
 			this.scheduleSentenceStop(remaining);
 			return;
 		}
+		if (this.sentenceLoop) {
+			this.sentenceArmed = false;
+			this.source.seekTo(this.sentenceStart);
+			this.source.play();
+			this.scheduleSentenceStop((this.sentenceEnd - this.sentenceStart) / rate);
+			return;
+		}
 		this.exitSentenceMode();
 		this.source.pause();
 		if (this.mode === 'dictation') {
@@ -1830,6 +1880,7 @@ export class ListenView extends ItemView {
 			this.replayCurrent();
 			return;
 		}
+		this.stopSentenceLoop();
 		this.exitSentenceMode();
 		this.source.toggle();
 	}

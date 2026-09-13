@@ -114,6 +114,13 @@ button.glean-btn.glean-btn-primary:disabled {
 	font-weight: 650;
 }
 
+button.glean-btn.is-sentence-loop {
+	background: color-mix(in srgb, var(--glean-accent) 26%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--glean-accent) 50%, transparent);
+	color: var(--glean-ink);
+	font-weight: 650;
+}
+
 .glean-btn.is-hidden-ctrl {
 	display: none;
 }

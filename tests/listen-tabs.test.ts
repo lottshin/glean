@@ -132,3 +132,44 @@ describe('routing a state to its player', () => {
 		expect(view.setStatus).toHaveBeenCalledWith('缺少 B 站播放地址');
 	});
 });
+
+describe('sentence loop state', () => {
+	it('restarts the active sentence when the loop stop is reached', () => {
+		const view = Object.create(ListenView.prototype) as Record<string, unknown>;
+		const source = {
+			getPlaybackRate: () => 1,
+			getCurrentTime: () => 4,
+			seekTo: vi.fn(),
+			play: vi.fn(),
+			pause: vi.fn(),
+		};
+		view.sentenceMode = true;
+		view.sentenceLoop = true;
+		view.sentenceStart = 2;
+		view.sentenceEnd = 4;
+		view.sentenceArmed = true;
+		view.source = source;
+		view.sentenceStopTimer = null;
+		view.clearSentenceStop = vi.fn();
+		view.scheduleSentenceStop = vi.fn();
+
+		(view.finishSentence as () => void)();
+
+		expect(source.seekTo).toHaveBeenCalledWith(2);
+		expect(source.play).toHaveBeenCalledOnce();
+		expect(view.sentenceMode).toBe(true);
+	});
+
+	it('does not enable a loop without loaded subtitles', () => {
+		const view = Object.create(ListenView.prototype) as Record<string, unknown>;
+		view.cues = [];
+		view.sentenceLoop = false;
+		view.setStatus = vi.fn();
+		view.syncSentenceLoopButton = vi.fn();
+
+		(view.toggleSentenceLoop as () => void)();
+
+		expect(view.sentenceLoop).toBe(false);
+		expect(view.setStatus).toHaveBeenCalledWith('打开带字幕的媒体后才能循环句子');
+	});
+});
