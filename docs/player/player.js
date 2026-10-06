@@ -57,7 +57,10 @@
 
 	function createPlayer() {
 		player = new window.YT.Player('player', {
-			host: 'https://www.youtube-nocookie.com',
+			// Regular youtube.com host (not youtube-nocookie.com): the nocookie
+			// host never writes cookies, so YouTube's "confirm you're not a bot"
+			// gate can never clear in cookie-capable webviews.
+			host: 'https://www.youtube.com',
 			playerVars: {
 				autoplay: 0,
 				controls: 1,
