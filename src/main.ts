@@ -997,7 +997,6 @@ export default class GleanPlugin extends Plugin {
 			active: true,
 			state: (resolved ?? {}) as Record<string, unknown>,
 		});
-		workspace.revealLeaf(leaf);
 		workspace.setActiveLeaf(leaf, { focus: true });
 
 		const view = leaf.view;

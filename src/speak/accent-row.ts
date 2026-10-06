@@ -13,14 +13,34 @@ export interface AccentSpeakHost {
  */
 export function mountSpeakerIcon(parent: HTMLElement): void {
 	parent.empty();
-	parent.insertAdjacentHTML(
-		'beforeend',
-		`<svg class="glean-speaker-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-			<path class="glean-speaker-body" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M11 5 6 9H3v6h3l5 4V5z"/>
-			<path class="glean-speaker-wave glean-speaker-wave-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-			<path class="glean-speaker-wave glean-speaker-wave-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-		</svg>`,
-	);
+	const svgNamespace = 'http://www.w3.org/2000/svg';
+	const svg = parent.ownerDocument.createElementNS(svgNamespace, 'svg');
+	svg.classList.add('glean-speaker-icon');
+	for (const [name, value] of Object.entries({
+		viewBox: '0 0 24 24',
+		width: '14',
+		height: '14',
+		'aria-hidden': 'true',
+		focusable: 'false',
+	})) {
+		svg.setAttribute(name, value);
+	}
+	for (const [className, pathData] of [
+		['glean-speaker-body', 'M11 5 6 9H3v6h3l5 4V5z'],
+		['glean-speaker-wave glean-speaker-wave-1', 'M15.54 8.46a5 5 0 0 1 0 7.07'],
+		['glean-speaker-wave glean-speaker-wave-2', 'M19.07 4.93a10 10 0 0 1 0 14.14'],
+	] as const) {
+		const path = parent.ownerDocument.createElementNS(svgNamespace, 'path');
+		path.setAttribute('class', className);
+		path.setAttribute('fill', 'none');
+		path.setAttribute('stroke', 'currentColor');
+		path.setAttribute('stroke-width', '2');
+		path.setAttribute('stroke-linecap', 'round');
+		path.setAttribute('stroke-linejoin', 'round');
+		path.setAttribute('d', pathData);
+		svg.appendChild(path);
+	}
+	parent.appendChild(svg);
 }
 
 /**
