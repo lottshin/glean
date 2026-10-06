@@ -5,6 +5,17 @@
 # Internal product notes — keep on this machine, do not push
 docs/PRD.md
 
+# Private marketing site — keep the public repository focused on the plugin
+# (anchored: on case-insensitive macOS an unanchored "Media/" would also
+# swallow src/media/)
+/promo/
+
+# Generated local visual outputs
+/output/
+
+# Local manual-test media
+/Media/
+
 # Intellij
 *.iml
 .idea
