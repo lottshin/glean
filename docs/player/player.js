@@ -8,6 +8,12 @@
 	var segment = null;
 	var frame = null;
 
+	// Standalone ?v=<id> opens this page directly in a browser for a smoke test.
+	// The embedded (host) flow never uses it: the Obsidian side sends the video
+	// id through postMessage after 'ready'.
+	var testVideoId = new URLSearchParams(window.location.search).get('v') || '';
+	var standalone = window.self === window.top;
+
 	function send(type, payload) {
 		window.parent.postMessage(Object.assign({ source: SOURCE, type: type }, payload || {}), '*');
 	}
@@ -62,7 +68,13 @@
 				widget_referrer: window.location.origin,
 			},
 			events: {
-				onReady: function () { send('ready'); },
+				onReady: function () {
+					send('ready');
+					if (/^[A-Za-z0-9_-]{11}$/.test(testVideoId)) {
+						videoId = testVideoId;
+						player.cueVideoById({ videoId: testVideoId, startSeconds: 0 });
+					}
+				},
 				onStateChange: function (event) {
 					send('state', { state: event.data });
 					if (event.data === 1) startMonitor();
@@ -127,6 +139,14 @@
 				break;
 		}
 	});
+
+	if (standalone && !/^[A-Za-z0-9_-]{11}$/.test(testVideoId)) {
+		// A bare visit has no host to send a video id, so the empty YouTube
+		// embed would only show a generic playback error. Say what to do.
+		document.getElementById('player').textContent =
+			'Glean YouTube player bridge. Append ?v=VIDEO_ID (11 characters) to test playback here.';
+		return;
+	}
 
 	window.setInterval(sendTime, 100);
 	loadApi();
