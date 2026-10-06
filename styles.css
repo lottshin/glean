@@ -197,7 +197,8 @@ button.glean-btn.is-sentence-loop {
 
 .glean-listen.is-youtube .glean-media-host,
 .glean-youtube-player,
-.glean-youtube-player iframe {
+.glean-youtube-player iframe,
+.glean-youtube-player-frame {
 	width: 100%;
 	height: min(40vh, 380px);
 	min-height: 200px;

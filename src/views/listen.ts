@@ -1,6 +1,7 @@
 import {
 	ItemView,
 	Notice,
+	Platform,
 	TFile,
 	WorkspaceLeaf,
 	normalizePath,
@@ -156,6 +157,7 @@ export class ListenView extends ItemView {
 	private sentenceLoop = false;
 	/** True only after the playhead has entered the target sentence (avoids seek race). */
 	private sentenceArmed = false;
+	private sentenceUsesSourceRange = false;
 	private sentenceStart = 0;
 	private sentenceEnd = 0;
 	private sentenceStopTimer: number | null = null;
@@ -512,13 +514,26 @@ export class ListenView extends ItemView {
 			}),
 			this.source.onError((message) => this.setStatus(message)),
 		);
+		if (this.source.onSegmentEnd) {
+			this.unsubs.push(this.source.onSegmentEnd(() => this.finishSentence(true)));
+		}
 	}
 
 	private ensureSource(kind: 'local' | 'youtube'): void {
-		if (this.source.kind === kind) {
+		if (kind === 'youtube') {
+			const useBridge = !Platform.isDesktopApp;
+			if (
+				this.source instanceof YouTubeSource &&
+				this.source.isBridgeMode() === useBridge
+			) {
+				return;
+			}
+			this.bindSource(new YouTubeSource(useBridge ? 'bridge' : 'direct'));
 			return;
 		}
-		this.bindSource(kind === 'youtube' ? new YouTubeSource() : new LocalFileSource());
+		if (this.source.kind !== kind) {
+			this.bindSource(new LocalFileSource());
+		}
 	}
 
 	private setMode(mode: GleanViewMode): void {
@@ -642,7 +657,8 @@ export class ListenView extends ItemView {
 		root.toggleClass('is-bilibili', this.currentBilibili !== null);
 		this.saveLocalBtn?.toggleClass(
 			'is-hidden-ctrl',
-			this.currentBilibili === null && this.bilibiliFallback === null,
+			!Platform.isDesktopApp ||
+				(this.currentBilibili === null && this.bilibiliFallback === null),
 		);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
@@ -849,6 +865,31 @@ export class ListenView extends ItemView {
 			this.mode = state.mode;
 		}
 
+		if (!Platform.isDesktopApp) {
+			// Mobile keeps the synced subtitle and learning UI, but never tries to
+			// use the desktop-only Bilibili proxy or download a remote stream.
+			this.bindSource(new LocalFileSource());
+			this.currentVideo = null;
+			this.currentYouTube = null;
+			this.currentBilibili = null;
+			this.bilibiliFallback = null;
+			this.currentSubtitle = subtitle;
+			this.cues = cues;
+			this.activeIndex = -1;
+			this.pendingSeek = null;
+			this.clearAdvanceTimer();
+			this.syncMediaChrome();
+			this.syncModeChrome();
+			this.renderCues();
+			this.refreshFocus();
+			this.setStatus(
+				'移动端暂不在线播放 B 站。请在桌面端点「存本地」，再同步视频到此设备。',
+			);
+			this.app.workspace.requestSaveLayout();
+			this.contentEl.focus({ preventScroll: true });
+			return;
+		}
+
 		const stream: BilibiliStream = {
 			bvid: state.bvid ?? '',
 			page: state.page ?? 1,
@@ -926,6 +967,10 @@ export class ListenView extends ItemView {
 	 * session survives the CDN link expiring.
 	 */
 	private async saveBilibiliCopy(): Promise<void> {
+		if (!Platform.isDesktopApp) {
+			this.setStatus('请在桌面端保存 B 站视频，再同步到此设备。');
+			return;
+		}
 		const stream = this.currentBilibili ?? this.bilibiliFallback;
 		if (!stream) {
 			return;
@@ -1382,6 +1427,9 @@ export class ListenView extends ItemView {
 	private onTick(t: number): void {
 		this.updateTime(t);
 		if (this.sentenceMode) {
+			if (this.sentenceUsesSourceRange) {
+				return;
+			}
 			if (!this.sentenceArmed) {
 				if (t >= this.sentenceStart - 0.05 && t < this.sentenceEnd) {
 					this.sentenceArmed = true;
@@ -1426,8 +1474,6 @@ export class ListenView extends ItemView {
 		this.refreshFocus();
 		if (this.mode === 'dictation') {
 			this.loadDictationForActive();
-		} else {
-			this.refreshCueTexts();
 		}
 	}
 
@@ -1668,7 +1714,9 @@ export class ListenView extends ItemView {
 	private exitSentenceMode(): void {
 		this.sentenceMode = false;
 		this.sentenceArmed = false;
+		this.sentenceUsesSourceRange = false;
 		this.clearSentenceStop();
+		this.source.cancelSegment?.();
 	}
 
 	private clearSentenceStop(): void {
@@ -1705,7 +1753,7 @@ export class ListenView extends ItemView {
 		}, remaining * 1000);
 	}
 
-	private finishSentence(): void {
+	private finishSentence(atBoundary = false): void {
 		if (!this.sentenceMode) {
 			return;
 		}
@@ -1714,12 +1762,20 @@ export class ListenView extends ItemView {
 		// so re-book against where playback actually is.
 		const rate = this.source.getPlaybackRate() || 1;
 		const remaining = (this.sentenceEnd - this.source.getCurrentTime()) / rate;
-		if (remaining > 0.05) {
+		if (!atBoundary && remaining > 0.05) {
 			this.scheduleSentenceStop(remaining);
 			return;
 		}
 		if (this.sentenceLoop) {
 			this.sentenceArmed = false;
+			const usesSourceRange = this.source.playSegment?.(
+				this.sentenceStart,
+				this.sentenceEnd,
+			) ?? false;
+			this.sentenceUsesSourceRange = usesSourceRange;
+			if (usesSourceRange) {
+				return;
+			}
 			this.source.seekTo(this.sentenceStart);
 			this.source.play();
 			this.scheduleSentenceStop((this.sentenceEnd - this.sentenceStart) / rate);
@@ -1790,11 +1846,16 @@ export class ListenView extends ItemView {
 		this.clearSpeakClipTimer();
 		this.sentenceMode = true;
 		this.sentenceArmed = false;
+		this.sentenceUsesSourceRange = false;
 		this.sentenceStart = cue.start;
 		this.sentenceEnd = cue.end;
+		this.setActive(cue.index);
+		if (this.source.playSegment?.(cue.start, cue.end)) {
+			this.sentenceUsesSourceRange = true;
+			return;
+		}
 		this.source.seekTo(cue.start);
 		this.source.play();
-		this.setActive(cue.index);
 		// Book from the seek target rather than the clock: until the seek lands,
 		// getCurrentTime() still reports where we came from. Ticks correct this
 		// once playback is really inside the sentence.

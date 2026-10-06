@@ -27,9 +27,13 @@ export interface MediaSource {
 	setPlaybackRate(rate: number): void;
 	getPlaybackRate(): number;
 	getCues(): Cue[];
+	/** Play one bounded clip natively when the source supports it. */
+	playSegment?(start: number, end: number): boolean;
+	cancelSegment?(): void;
 	onTimeUpdate(cb: (t: number) => void): () => void;
 	onPlay(cb: () => void): () => void;
 	onPause(cb: () => void): () => void;
+	onSegmentEnd?(cb: () => void): () => void;
 	onError(cb: (message: string) => void): () => void;
 }
 

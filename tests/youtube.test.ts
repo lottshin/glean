@@ -3,7 +3,12 @@ import {
 	captureYouTubeFromHtml,
 	pickDefaultTrack,
 } from '../extension/src/capture';
-import { YouTubeSource, youtubePlayerError } from '../src/media/youtube';
+import {
+	YOUTUBE_PLAYER_BRIDGE_URL,
+	YouTubeSource,
+	youtubePlayerError,
+	youtubePlayerVars,
+} from '../src/media/youtube';
 import {
 	parseYouTubeSourcePath,
 	parseYouTubeVideoId,
@@ -566,6 +571,24 @@ describe('YouTube playback', () => {
 	it('snaps rates and explains official player errors', () => {
 		expect(snapPlaybackRate(1.4, [0.5, 1, 1.5, 2])).toBe(1.5);
 		expect(youtubePlayerError(153)).toContain('Error 153');
+	});
+
+	it('does not send a custom-scheme Obsidian origin to YouTube', () => {
+		expect(youtubePlayerVars('app://obsidian.md')).toMatchObject({
+			enablejsapi: 1,
+			origin: 'https://obsidian.md',
+			widget_referrer: 'https://obsidian.md',
+		});
+		expect(youtubePlayerVars('https://notes.example')).toHaveProperty(
+			'origin',
+			'https://notes.example',
+		);
+	});
+
+	it('keeps the mobile player bridge on a fixed HTTPS page', () => {
+		const bridge = new URL(YOUTUBE_PLAYER_BRIDGE_URL);
+		expect(bridge.protocol).toBe('https:');
+		expect(bridge.pathname).toMatch(/\/player\/$/);
 	});
 
 	it('loads, seeks, plays, polls and detaches a mocked player', async () => {
