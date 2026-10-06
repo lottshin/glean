@@ -61,6 +61,8 @@ Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 
 扩展不下载 YouTube 音视频。采集需要桌面 Obsidian 正在运行。移动端 YouTube 播放会加载仓库 `docs/player/` 发布的静态 HTTPS 播放页，再由 YouTube 直接向设备提供视频。播放页只接收视频 ID 和播放控制，不上传字幕、Vault 文件或用户内容。
 
+移动端 webview 无法携带 YouTube 登录态，部分视频会被要求登录验证而无法内嵌播放。把以视频 ID 命名的本地媒体（如 `Glean/YouTube/<视频ID>.m4a`，可用任意自有工具导出）放进会话目录后，打开同一笔记会自动改走本地精听，句子循环、听写、词级原声全部可用。
+
 主仓库的 GitHub Pages 工作流只发布 `docs/player/`，发布地址形如 `https://<账号>.github.io/<仓库>/player/`。如果仓库名称或账号改变，只需要同步修改 `src/media/youtube.ts` 里的 `YOUTUBE_PLAYER_BRIDGE_URL`。
 
 ### 阅读

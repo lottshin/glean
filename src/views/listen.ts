@@ -773,6 +773,27 @@ export class ListenView extends ItemView {
 		this.contentEl.focus({ preventScroll: true });
 	}
 
+	/** A local media copy named after the video id (e.g. <videoId>.m4a next to
+	 * the subtitle) unlocks the full offline workflow, because mobile YouTube
+	 * embeds are login-walled by YouTube's cookie-less webview policy. */
+	private findLocalYouTubeMedia(subtitle: TFile, videoId: string): TFile | null {
+		const folderPath = subtitle.parent?.path ?? '/';
+		const prefix = videoId.toLowerCase();
+		for (const file of this.app.vault.getFiles()) {
+			if (file.parent?.path !== folderPath) {
+				continue;
+			}
+			if (!MEDIA_EXTENSIONS.has(file.extension.toLowerCase())) {
+				continue;
+			}
+			if (!file.basename.toLowerCase().startsWith(prefix)) {
+				continue;
+			}
+			return file;
+		}
+		return null;
+	}
+
 	private async openYouTubeMedia(state: ListenState): Promise<void> {
 		if (!this.mediaHostEl || !state.videoId) {
 			return;
@@ -792,6 +813,16 @@ export class ListenView extends ItemView {
 		const cues = cuesFromSubtitleBody(await this.app.vault.read(subtitle));
 		if (cues.length === 0) {
 			this.setStatus('YouTube 字幕为空或格式无效');
+			return;
+		}
+
+		const localMedia = this.findLocalYouTubeMedia(subtitle, state.videoId);
+		if (localMedia) {
+			if (state.seekTo !== undefined) {
+				this.pendingSeek = state.seekTo;
+			}
+			await this.loadFiles(localMedia, subtitle);
+			this.setStatus(`YouTube 本地播放 · ${localMedia.name} · ${cues.length} 句`);
 			return;
 		}
 
