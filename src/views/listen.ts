@@ -188,6 +188,7 @@ export class ListenView extends ItemView {
 	private dictRevealed = false;
 	private advanceTimer: number | null = null;
 	private saveLocalBtn: HTMLButtonElement | null = null;
+	private openYouTubeBtn: HTMLButtonElement | null = null;
 	private playerPaneEl: HTMLElement | null = null;
 	private audioTitleEl: HTMLElement | null = null;
 	private audioSubEl: HTMLElement | null = null;
@@ -372,6 +373,13 @@ export class ListenView extends ItemView {
 		this.saveLocalBtn.addEventListener('click', () => {
 			void this.saveBilibiliCopy();
 		});
+
+		this.openYouTubeBtn = opts.createEl('button', {
+			text: '在 YouTube 打开',
+			cls: 'glean-btn is-hidden-ctrl',
+			attr: { title: '在系统浏览器或 YouTube App 中打开当前视频' },
+		});
+		this.openYouTubeBtn.addEventListener('click', () => this.openCurrentYouTube());
 
 		const rateSelect = opts.createEl('select', { cls: 'glean-rate', attr: { title: '倍速' } });
 		for (const rate of PLAYBACK_RATES) {
@@ -648,6 +656,18 @@ export class ListenView extends ItemView {
 		empty.createDiv({ cls: 'glean-empty-detail', text: detail });
 	}
 
+	private openCurrentYouTube(): void {
+		if (!this.currentYouTube) {
+			return;
+		}
+		// YouTube requires a signed-in session for embedded playback in
+		// cookie-less mobile webviews; the app or browser plays it fine.
+		window.open(
+			`https://www.youtube.com/watch?v=${this.currentYouTube.videoId}`,
+			'_blank',
+		);
+	}
+
 	private syncMediaChrome(): void {
 		const root = this.contentEl;
 		const has =
@@ -659,6 +679,10 @@ export class ListenView extends ItemView {
 			'is-hidden-ctrl',
 			!Platform.isDesktopApp ||
 				(this.currentBilibili === null && this.bilibiliFallback === null),
+		);
+		this.openYouTubeBtn?.toggleClass(
+			'is-hidden-ctrl',
+			Platform.isDesktopApp || this.currentYouTube === null,
 		);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
@@ -807,6 +831,9 @@ export class ListenView extends ItemView {
 		this.activeIndex = -1;
 		this.clearAdvanceTimer();
 		this.syncMediaChrome();
+		if (!Platform.isDesktopApp) {
+			this.setStatus('已连接 YouTube。若画面要求登录验证，点工具栏「在 YouTube 打开」继续');
+		}
 		this.syncModeChrome();
 		this.renderCues();
 		this.refreshFocus();
@@ -2060,6 +2087,7 @@ export class ListenView extends ItemView {
 		this.dictHintEl = null;
 		this.hideBtn = null;
 		this.saveLocalBtn = null;
+		this.openYouTubeBtn = null;
 		this.modeListenBtn = null;
 		this.modeDictBtn = null;
 		this.playerPaneEl = null;
