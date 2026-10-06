@@ -14,6 +14,26 @@
 	var testVideoId = new URLSearchParams(window.location.search).get('v') || '';
 	var standalone = window.self === window.top;
 
+	// The player area shows nothing but an endless spinner when a video stalls,
+	// so surface player states in a tiny on-page chip for remote debugging.
+	var statusChip = null;
+	function showStatus(text) {
+		if (statusChip === null) {
+			statusChip = document.createElement('div');
+			statusChip.style.cssText =
+				'position:fixed;left:8px;bottom:8px;z-index:2147483647;pointer-events:none;' +
+				'background:rgba(0,0,0,.6);color:#eee;font:11px/1.4 -apple-system,Helvetica,sans-serif;' +
+				'padding:3px 9px;border-radius:9px;';
+			document.body.appendChild(statusChip);
+		}
+		statusChip.textContent = 'Glean bridge · ' + text;
+	}
+	function hideStatus() {
+		if (statusChip !== null) statusChip.remove();
+		statusChip = null;
+	}
+	var STATE_TEXT = { '-1': '未开始', '0': '已结束', '2': '已暂停', '3': '缓冲中…', '5': '已就绪' };
+
 	function send(type, payload) {
 		window.parent.postMessage(Object.assign({ source: SOURCE, type: type }, payload || {}), '*');
 	}
@@ -75,21 +95,33 @@
 					send('ready');
 					if (/^[A-Za-z0-9_-]{11}$/.test(testVideoId)) {
 						videoId = testVideoId;
+						showStatus('加载视频 ' + testVideoId);
 						player.cueVideoById({ videoId: testVideoId, startSeconds: 0 });
+					} else {
+						showStatus('就绪，等待视频');
 					}
 				},
 				onStateChange: function (event) {
 					send('state', { state: event.data });
-					if (event.data === 1) startMonitor();
+					if (event.data === 1) {
+						hideStatus();
+						startMonitor();
+					} else if (STATE_TEXT[String(event.data)]) {
+						showStatus(STATE_TEXT[String(event.data)]);
+					}
 					if (event.data === 2) stopMonitor();
 					if (event.data === 0) finishSegment();
 				},
-				onError: function (event) { send('error', { code: event.data }); },
+				onError: function (event) {
+					send('error', { code: event.data });
+					showStatus('错误 ' + event.data);
+				},
 			},
 		});
 	}
 
 	function loadApi() {
+		showStatus('加载播放器 API…');
 		if (window.YT && window.YT.Player) {
 			createPlayer();
 			return;
@@ -107,6 +139,7 @@
 		switch (data.type) {
 			case 'load':
 				videoId = data.videoId || '';
+				showStatus('收到视频 ' + videoId);
 				segment = null;
 				stopMonitor();
 				player.cueVideoById({ videoId: videoId, startSeconds: 0 });
