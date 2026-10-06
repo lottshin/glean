@@ -38,4 +38,15 @@ declare const chrome: {
 		}) => Promise<Array<{ id?: number; url?: string }>>;
 		sendMessage: (tabId: number, message: unknown) => Promise<unknown>;
 	};
+	scripting: {
+		executeScript: (injection: {
+			target: { tabId: number };
+			files?: string[];
+			func?: () => unknown;
+		}) => Promise<unknown[]>;
+		insertCSS: (injection: {
+			target: { tabId: number };
+			files: string[];
+		}) => Promise<void>;
+	};
 };

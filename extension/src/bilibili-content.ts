@@ -9,6 +9,7 @@ import {
 	usableEnglishTracks,
 	type BilibiliSubtitleTrack,
 } from '../../src/bilibili/subtitle';
+import { isNativeBilibiliControl } from './control-layout';
 import { sendBackground } from './runtime';
 
 const BUTTON_ID = 'glean-sync-button';
@@ -178,10 +179,7 @@ function normalizeControlIcon(button: HTMLButtonElement): void {
  */
 function nativeControlAnchor(host: HTMLElement): Element | null {
 	for (const child of Array.from(host.children)) {
-		if (
-			child.id !== BUTTON_ID &&
-			child.classList.contains('bpx-player-ctrl-btn')
-		) {
+		if (isNativeBilibiliControl(child, BUTTON_ID)) {
 			return child;
 		}
 	}

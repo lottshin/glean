@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Glean Capture Store Screenshots</title>
+	<link rel="stylesheet" href="screenshots-v2.css" />
+</head>
+<body data-scene="youtube">
+	<main class="shot">
+		<header class="shot-header">
+			<div class="shot-brand"><img src="../icons/icon-48.png" alt="" /><strong>Glean Capture</strong></div>
+			<div class="shot-copy">
+				<h1 class="youtube-title">打开扩展，自动识别英文字幕</h1>
+				<h1 class="bilibili-title">B 站英文字幕，也能直接同步</h1>
+				<h1 class="result-title">字幕已送达你的 Obsidian</h1>
+				<p class="youtube-title">在 YouTube 视频页选择字幕轨道，无需复制粘贴。</p>
+				<p class="bilibili-title">过滤机翻字幕，只保留可用的英文轨道。</p>
+				<p class="result-title">视频信息、字幕文件和学习入口自动整理完成。</p>
+			</div>
+			<div class="step"><span>0</span><b>1</b></div>
+		</header>
+
+		<section class="browser-shell capture-scene">
+			<div class="browser-topbar">
+				<div class="traffic"><i></i><i></i><i></i></div>
+				<div class="nav-icons">‹　›　↻</div>
+				<div class="address youtube-address">youtube.com/watch?v=learn-english</div>
+				<div class="address bilibili-address">bilibili.com/video/BV1Glean</div>
+				<img src="../icons/icon-32.png" alt="Glean" />
+			</div>
+			<div class="site-page">
+				<aside class="site-sidebar">
+					<div class="site-logo youtube-logo"><i></i><b>YouTube</b></div>
+					<div class="site-logo bilibili-logo"><i></i><b>bilibili</b></div>
+					<span class="nav-line wide"></span><span class="nav-line"></span><span class="nav-line wide"></span><span class="nav-line"></span>
+				</aside>
+				<div class="watch-page">
+					<div class="video-stage">
+						<img class="youtube-visual" src="../../output/imagegen/glean-store/background-v1.png" alt="" />
+						<img class="bilibili-visual" src="../../output/imagegen/glean-store/background-v2.png" alt="" />
+						<div class="video-shade"></div>
+						<div class="video-caption youtube-title">welcome to China</div>
+						<div class="video-caption bilibili-title">The future belongs to those who keep learning.</div>
+						<div class="video-controls"><span class="play">▶</span><span class="timeline"><i></i></span><span class="time">02:14 / 14:25</span><span class="cc">CC</span></div>
+					</div>
+					<div class="video-meta">
+						<div><strong class="youtube-title">First Impressions of Shanghai</strong><strong class="bilibili-title">How learning changes the way we think</strong><small>English learning · Captions available</small></div>
+						<button>Subscribed</button>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="extension-popup capture-popup">
+			<header>
+				<img src="../icons/icon-48.png" alt="" />
+				<div><strong>Glean</strong><small>同步 YouTube / B 站字幕到 Obsidian</small></div>
+			</header>
+			<div class="setting-grid">
+				<label>接收端口<span>17865</span></label>
+				<label>Token<span class="masked">••••••••••</span></label>
+			</div>
+			<label class="language">字幕语言<span class="youtube-title">English (United States)</span><span class="bilibili-title">英语（AI 生成）</span></label>
+			<div class="status"><i></i><span class="youtube-title">已识别：First Impressions of Shanghai</span><span class="bilibili-title">已识别：How learning changes the way we think</span></div>
+			<div class="actions"><button>保存设置</button><button class="primary">同步当前视频</button></div>
+		</section>
+
+		<section class="result-scene">
+			<div class="result-app">
+				<img src="screenshot-listen.png" alt="Glean 在 Obsidian 中的精听界面" />
+			</div>
+			<div class="success-panel">
+				<div class="success-icon">✓</div>
+				<span>同步成功</span>
+				<strong>字幕已保存到 Glean</strong>
+				<p>现在可以逐句精听、听写、查词和复习。</p>
+			</div>
+		</section>
+	</main>
+	<script>
+		document.body.dataset.scene = new URLSearchParams(location.search).get('scene') || 'youtube';
+		const step = document.querySelector('.step b');
+		if (document.body.dataset.scene === 'bilibili') step.textContent = '2';
+		if (document.body.dataset.scene === 'result') step.textContent = '3';
+	</script>
+</body>
+</html>

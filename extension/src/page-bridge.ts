@@ -197,7 +197,9 @@ function installNetworkHooks(): void {
 		return response;
 	};
 
+	// eslint-disable-next-line @typescript-eslint/unbound-method -- Called with the active XHR instance below.
 	const originalOpen = XMLHttpRequest.prototype.open;
+	// eslint-disable-next-line @typescript-eslint/unbound-method -- Called with the active XHR instance below.
 	const originalSend = XMLHttpRequest.prototype.send;
 	XMLHttpRequest.prototype.open = function (
 		method: string,

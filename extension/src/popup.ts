@@ -31,7 +31,55 @@ type PopupTrack = {
 	automatic: boolean;
 };
 
-let activePlatform: 'youtube' | 'bilibili' | null = null;
+type VideoPlatform = 'youtube' | 'bilibili';
+
+function platformFromUrl(url: string): VideoPlatform | null {
+	if (/bilibili\.com\/video\//.test(url)) {
+		return 'bilibili';
+	}
+	return /youtube\.com|youtu\.be/.test(url) ? 'youtube' : null;
+}
+
+function hasNoMessageReceiver(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /receiving end does not exist|could not establish connection/i.test(message);
+}
+
+async function injectContentScript(
+	tabId: number,
+	platform: VideoPlatform,
+): Promise<void> {
+	// An extension reload leaves the old DOM button behind, but its listener
+	// belongs to a dead extension context. Remove it before booting the new one.
+	await chrome.scripting.executeScript({
+		target: { tabId },
+		func: () => document.getElementById('glean-sync-button')?.remove(),
+	});
+	await chrome.scripting.insertCSS({
+		target: { tabId },
+		files: ['content.css'],
+	});
+	await chrome.scripting.executeScript({
+		target: { tabId },
+		files: [platform === 'bilibili' ? 'bilibili-content.js' : 'content.js'],
+	});
+}
+
+async function sendToVideoTab<T>(
+	tabId: number,
+	platform: VideoPlatform,
+	message: unknown,
+): Promise<T> {
+	try {
+		return (await chrome.tabs.sendMessage(tabId, message)) as T;
+	} catch (error) {
+		if (!hasNoMessageReceiver(error)) {
+			throw error;
+		}
+		await injectContentScript(tabId, platform);
+		return (await chrome.tabs.sendMessage(tabId, message)) as T;
+	}
+}
 
 /** Names the real obstacle: no English at all, or English that is a translation. */
 function bilibiliRefusal(capture: BilibiliCapture): string {
@@ -86,28 +134,27 @@ async function refreshCapture(): Promise<void> {
 		setStatus('请先打开一个 YouTube 或 B 站视频页');
 		return;
 	}
-	const isBilibili = /bilibili\.com\/video\//.test(tab.url);
-	const isYouTube = /youtube\.com|youtu\.be/.test(tab.url);
-	if (!isBilibili && !isYouTube) {
-		activePlatform = null;
+	const platform = platformFromUrl(tab.url);
+	if (!platform) {
 		fillLanguages([]);
 		setStatus('请先打开一个 YouTube 或 B 站视频页');
 		return;
 	}
-	activePlatform = isBilibili ? 'bilibili' : 'youtube';
 	try {
-		const response = (await chrome.tabs.sendMessage(tab.id, {
-			type: isBilibili
+		const response = await sendToVideoTab<{
+			capture: YouTubeCapture | BilibiliCapture | null;
+		}>(tab.id, platform, {
+			type: platform === 'bilibili'
 				? 'glean-get-capture-bilibili'
 				: 'glean-get-capture',
-		})) as { capture: YouTubeCapture | BilibiliCapture | null };
+		});
 		const capture = response?.capture ?? null;
 		if (!capture) {
 			fillLanguages([]);
 			setStatus('无法读取该页字幕信息，稍等页面加载后再试', 'error');
 			return;
 		}
-		if (isBilibili) {
+		if (platform === 'bilibili') {
 			const biliCapture = capture as BilibiliCapture;
 			const english = usableEnglishTracks(biliCapture.tracks);
 			const preferred = pickDefaultBilibiliTrack(english);
@@ -137,7 +184,7 @@ async function refreshCapture(): Promise<void> {
 			);
 		}
 		setStatus(
-			isBilibili
+			platform === 'bilibili'
 				? usableEnglishTracks((capture as BilibiliCapture).tracks).length > 0
 					? `已识别：${capture.title}`
 					: bilibiliRefusal(capture as BilibiliCapture)
@@ -148,28 +195,40 @@ async function refreshCapture(): Promise<void> {
 					: '该视频没有可下载的字幕轨道',
 			langSelect.options.length > 0 && !langSelect.disabled ? 'ok' : 'error',
 		);
-	} catch {
+	} catch (error) {
 		fillLanguages([]);
-		setStatus('内容脚本未就绪，请刷新视频页面', 'error');
+		setStatus(
+			error instanceof Error ? error.message : '无法连接视频页面',
+			'error',
+		);
 	}
 }
 
 async function syncNow(): Promise<void> {
 	await saveSettings();
 	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-	if (!tab?.id) {
+	if (!tab?.id || !tab.url) {
 		setStatus('没有活动标签页', 'error');
+		return;
+	}
+	const platform = platformFromUrl(tab.url);
+	if (!platform) {
+		setStatus('请先打开一个 YouTube 或 B 站视频页', 'error');
 		return;
 	}
 	setStatus('正在同步…');
 	try {
-		const response = (await chrome.tabs.sendMessage(tab.id, {
-			type:
-				activePlatform === 'bilibili'
-					? 'glean-sync-bilibili-now'
-					: 'glean-sync-now',
-			trackIndex: langSelect.value ? Number(langSelect.value) : undefined,
-		})) as { ok: boolean; error?: string };
+		const response = await sendToVideoTab<{ ok: boolean; error?: string }>(
+			tab.id,
+			platform,
+			{
+				type:
+					platform === 'bilibili'
+						? 'glean-sync-bilibili-now'
+						: 'glean-sync-now',
+				trackIndex: langSelect.value ? Number(langSelect.value) : undefined,
+			},
+		);
 		if (!response?.ok) {
 			throw new Error(response?.error ?? '同步失败');
 		}

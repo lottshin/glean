@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Glean Capture Store Artwork</title>
+	<link rel="stylesheet" href="promo-v2.css" />
+</head>
+<body data-asset="marquee">
+	<main class="artboard">
+		<img class="generated-backdrop" src="../../output/imagegen/glean-store/background-v2.png" alt="" />
+		<div class="backdrop-wash"></div>
+
+		<section class="copy">
+			<div class="brand-row">
+				<img src="../icons/icon-128.png" alt="" />
+				<span>Glean Capture</span>
+			</div>
+			<h1>把视频英文字幕<br />收进 Obsidian</h1>
+			<p>打开视频，选择字幕，一键同步。</p>
+			<div class="dependency-note">需安装 Glean Obsidian 插件</div>
+			<div class="platforms" aria-label="支持的平台">
+				<span class="youtube-dot"></span><strong>YouTube</strong>
+				<span class="separator"></span>
+				<span class="bilibili-dot"></span><strong>B 站</strong>
+			</div>
+		</section>
+
+		<section class="product-scene" aria-label="Glean Capture 扩展界面">
+			<div class="browser-panel">
+				<div class="browser-bar">
+					<div class="traffic"><i></i><i></i><i></i></div>
+					<div class="address">youtube.com/watch</div>
+					<img class="toolbar-icon" src="../icons/icon-48.png" alt="" />
+				</div>
+				<div class="video-frame">
+					<div class="caption">welcome to China</div>
+					<div class="progress"><span></span></div>
+				</div>
+			</div>
+
+			<div class="extension-popup">
+				<header>
+					<img src="../icons/icon-48.png" alt="" />
+					<div><strong>Glean</strong><small>同步 YouTube / B 站字幕到 Obsidian</small></div>
+				</header>
+				<div class="setting-grid">
+					<label>接收端口<span>17865</span></label>
+					<label>Token<span class="masked">••••••••••</span></label>
+				</div>
+				<label class="language">字幕语言<span>English (United States)</span></label>
+				<div class="status"><i></i><span>已识别：First Impressions of Shanghai</span></div>
+				<div class="actions"><button>保存设置</button><button class="primary">同步当前视频</button></div>
+			</div>
+
+			<div class="destination">
+				<span>已发送</span>
+				<strong>Obsidian · Glean</strong>
+			</div>
+		</section>
+	</main>
+	<script>
+		document.body.dataset.asset = new URLSearchParams(location.search).get('asset') || 'marquee';
+	</script>
+</body>
+</html>
