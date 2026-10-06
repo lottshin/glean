@@ -17,7 +17,10 @@
 	// The player area shows nothing but an endless spinner when a video stalls,
 	// so surface player states in a tiny on-page chip for remote debugging.
 	var statusChip = null;
+	var lastStatusText = '';
+	var netText = '';
 	function showStatus(text) {
+		lastStatusText = text;
 		if (statusChip === null) {
 			statusChip = document.createElement('div');
 			statusChip.style.cssText =
@@ -26,13 +29,63 @@
 				'padding:3px 9px;border-radius:9px;';
 			document.body.appendChild(statusChip);
 		}
-		statusChip.textContent = 'Glean bridge · ' + text;
+		statusChip.textContent = 'Glean bridge · ' + text + (netText ? ' · ' + netText : '');
 	}
 	function hideStatus() {
 		if (statusChip !== null) statusChip.remove();
 		statusChip = null;
 	}
 	var STATE_TEXT = { '-1': '未开始', '0': '已结束', '2': '已暂停', '3': '缓冲中…', '5': '已就绪' };
+
+	// Reachability probes: the player shell comes from youtube.com while the
+	// video bytes come from googlevideo.com. A rule-based VPN can pass the
+	// first and silently black-hole the second; the chip makes that visible.
+	var PROBES = [
+		['yt', 'https://www.youtube.com/generate_204'],
+		['gvideo', 'https://redirector.googlevideo.com/generate_204'],
+	];
+	function probeUrl(url, timeoutMs) {
+		return new Promise(function (resolve) {
+			var settled = false;
+			var timer = setTimeout(function () {
+				if (!settled) { settled = true; resolve(false); }
+			}, timeoutMs);
+			fetch(url, { mode: 'no-cors', cache: 'no-store' })
+				.then(function () {
+					if (!settled) { settled = true; clearTimeout(timer); resolve(true); }
+				})
+				.catch(function () {
+					if (!settled) { settled = true; clearTimeout(timer); resolve(false); }
+				});
+		});
+	}
+	function runNetProbes() {
+		Promise.all(PROBES.map(function (item) {
+			return probeUrl(item[1], 8000).then(function (ok) { return item[0] + (ok ? '✓' : '✗'); });
+		})).then(function (parts) {
+			netText = parts.join(' ');
+			if (statusChip !== null) showStatus(lastStatusText);
+		});
+	}
+
+	var fractionTimer = null;
+	function startFractionMonitor() {
+		stopFractionMonitor();
+		fractionTimer = setInterval(function () {
+			if (player && typeof player.getVideoLoadedFraction === 'function') {
+				showStatus(
+					'缓冲中… ' + Math.round(player.getVideoLoadedFraction() * 100) + '% · 时长 ' +
+					Math.round(player.getDuration() || 0) + 's',
+				);
+			}
+		}, 1000);
+	}
+	function stopFractionMonitor() {
+		if (fractionTimer !== null) {
+			clearInterval(fractionTimer);
+			fractionTimer = null;
+		}
+	}
 
 	function send(type, payload) {
 		window.parent.postMessage(Object.assign({ source: SOURCE, type: type }, payload || {}), '*');
@@ -105,9 +158,12 @@
 					send('state', { state: event.data });
 					if (event.data === 1) {
 						hideStatus();
+						stopFractionMonitor();
 						startMonitor();
-					} else if (STATE_TEXT[String(event.data)]) {
-						showStatus(STATE_TEXT[String(event.data)]);
+					} else {
+						stopFractionMonitor();
+						if (STATE_TEXT[String(event.data)]) showStatus(STATE_TEXT[String(event.data)]);
+						if (event.data === 3) startFractionMonitor();
 					}
 					if (event.data === 2) stopMonitor();
 					if (event.data === 0) finishSegment();
@@ -122,6 +178,8 @@
 
 	function loadApi() {
 		showStatus('加载播放器 API…');
+		runNetProbes();
+		setInterval(runNetProbes, 15000);
 		if (window.YT && window.YT.Player) {
 			createPlayer();
 			return;
