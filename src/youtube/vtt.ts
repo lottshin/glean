@@ -326,12 +326,32 @@ interface NlpTerm {
 	tags: string[];
 }
 
+interface NlpJsonTerm {
+	text?: string;
+	tags?: string[];
+}
+
+interface NlpJsonSentence {
+	terms?: NlpJsonTerm[];
+}
+
 interface NlpPhrase {
 	offset?: {
 		start: number;
 		length: number;
 	};
 }
+
+interface NlpSelection {
+	json(options?: { offset?: boolean }): unknown;
+}
+
+interface NlpDocument extends NlpSelection {
+	nouns(): NlpSelection;
+	verbs(): NlpSelection;
+}
+
+const parseNlp = nlp as unknown as (text: string) => NlpDocument;
 
 /** Memoize compromise parses — merge/split ask about the same edges many times. */
 const nlpTermsCache = new Map<string, NlpTerm[]>();
@@ -343,9 +363,9 @@ function nlpTerms(text: string): NlpTerm[] {
 	if (cached) {
 		return cached;
 	}
-	const sentence = nlp(key).json()[0];
-	const terms = (sentence?.terms ?? []).map((term: NlpTerm) => ({
-		text: term.text,
+	const sentence = (parseNlp(key).json() as NlpJsonSentence[])[0];
+	const terms = (sentence?.terms ?? []).map((term: NlpJsonTerm) => ({
+		text: term.text ?? '',
 		tags: term.tags ?? [],
 	}));
 	nlpTermsCache.set(key, terms);
@@ -398,11 +418,11 @@ function phraseCrossesBoundary(left: string, right: string): boolean {
 	}
 	const joined = `${leftText} ${rightText}`;
 	const boundary = leftText.length;
-	const document = nlp(joined);
+	const document = parseNlp(joined);
 	const phrases = [
-		...document.nouns().json({ offset: true }),
-		...document.verbs().json({ offset: true }),
-	] as NlpPhrase[];
+		...(document.nouns().json({ offset: true }) as NlpPhrase[]),
+		...(document.verbs().json({ offset: true }) as NlpPhrase[]),
+	];
 	const crosses = phrases.some((phrase) => {
 		const start = phrase.offset?.start;
 		const length = phrase.offset?.length;

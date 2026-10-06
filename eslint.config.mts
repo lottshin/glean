@@ -6,7 +6,10 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
+		'output',
+		'promo',
 		'extension/dist',
+		'docs/player',
 		'extension/esbuild.mjs',
 		'dev-probe',
 		'esbuild.config.mjs',
@@ -26,7 +29,13 @@ export default defineConfig(
 			},
 			parserOptions: {
 				projectService: {
-					allowDefaultProject: ['eslint.config.mts', 'manifest.json', 'tools/*.mjs'],
+					allowDefaultProject: [
+						'eslint.config.mts',
+						'manifest.json',
+					'extension/*.mjs',
+					'scripts/*.mjs',
+					'tools/*.{js,mjs}',
+					],
 				},
 				tsconfigRootDir: import.meta.dirname,
 				extraFileExtensions: ['.json'],
@@ -50,7 +59,7 @@ export default defineConfig(
 		},
 	},
 	{
-		files: ['tools/*.mjs'],
+		files: ['extension/*.mjs', 'scripts/*.mjs', 'tools/*.{js,mjs}'],
 		rules: {
 			'no-console': 'off',
 			'obsidianmd/rule-custom-message': 'off',

@@ -1,13 +1,16 @@
 {
 	"name": "glean",
 	"version": "0.0.1",
+	"private": true,
 	"description": "Learn English inside Obsidian by intensive listening and reading, with a Markdown vocabulary notebook.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
+		"typecheck": "tsc -noEmit -skipLibCheck",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"extension:build": "node extension/esbuild.mjs",
+		"extension:package": "node extension/package.mjs",
 		"icons:build": "node tools/build-icons.mjs",
 		"dict:build": "node tools/build-dict.mjs",
 		"dict:coverage": "node tools/sample-coverage.mjs",

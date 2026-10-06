@@ -34,10 +34,6 @@ describe('segmentation speed', () => {
 			const cues = cuesFromTimedText(payload);
 			const ms = performance.now() - start;
 			const vtt = timedTextToWebVtt(payload);
-			// eslint-disable-next-line no-console
-			console.log(
-				`1500 events -> ${cues.length} cues in ${ms.toFixed(0)}ms; segmented=${/glean-segmented/i.test(vtt)}`,
-			);
 			expect(cues.length).toBeGreaterThan(50);
 			expect(ms).toBeLessThan(8000);
 			expect(vtt).toMatch(/NOTE\s+glean-segmented/i);

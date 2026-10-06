@@ -31,7 +31,6 @@ function resolveRequire(): (id: string) => unknown {
 		return globalRequire;
 	}
 	if (typeof require === 'function') {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
 		return require;
 	}
 	throw new Error('当前环境没有 Node require（移动端或不支持桌面能力）');
