@@ -1,4 +1,5 @@
 import {
+	FileSystemAdapter,
 	ItemView,
 	Notice,
 	Platform,
@@ -189,6 +190,7 @@ export class ListenView extends ItemView {
 	private advanceTimer: number | null = null;
 	private saveLocalBtn: HTMLButtonElement | null = null;
 	private openYouTubeBtn: HTMLButtonElement | null = null;
+	private copyYouTubeCmdBtn: HTMLButtonElement | null = null;
 	private playerPaneEl: HTMLElement | null = null;
 	private audioTitleEl: HTMLElement | null = null;
 	private audioSubEl: HTMLElement | null = null;
@@ -380,6 +382,13 @@ export class ListenView extends ItemView {
 			attr: { title: '在系统浏览器或 YouTube App 中打开当前视频' },
 		});
 		this.openYouTubeBtn.addEventListener('click', () => this.openCurrentYouTube());
+
+		this.copyYouTubeCmdBtn = opts.createEl('button', {
+			text: '拷下载命令',
+			cls: 'glean-btn is-hidden-ctrl',
+			attr: { title: '复制 yt-dlp 音频下载命令，文件自动落到本会话目录' },
+		});
+		this.copyYouTubeCmdBtn.addEventListener('click', () => this.copyYouTubeDownloadCmd());
 
 		const rateSelect = opts.createEl('select', { cls: 'glean-rate', attr: { title: '倍速' } });
 		for (const rate of PLAYBACK_RATES) {
@@ -656,6 +665,34 @@ export class ListenView extends ItemView {
 		empty.createDiv({ cls: 'glean-empty-detail', text: detail });
 	}
 
+	/** Copies a ready-to-run yt-dlp command whose output lands beside the
+	 * session subtitle with the video-id name the local-media path expects.
+	 * Glean itself never downloads — the user runs their own tool. */
+	private copyYouTubeDownloadCmd(): void {
+		if (!this.currentYouTube) {
+			return;
+		}
+		const videoId = this.currentYouTube.videoId;
+		const folder = this.currentSubtitle?.parent?.path ?? 'Glean/YouTube';
+		const base = Platform.isDesktopApp
+			? (this.app.vault.adapter as FileSystemAdapter).getBasePath()
+			: '';
+		const output = `${base ? `${base}/` : ''}${folder}/${videoId}.m4a`;
+		const cmd =
+			`yt-dlp -x --audio-format m4a -o "${output}" ` +
+			`"https://www.youtube.com/watch?v=${videoId}"`;
+		void navigator.clipboard.writeText(cmd).then(
+			() => {
+				new Notice(
+					'已复制下载命令。粘贴到终端运行（需自装 yt-dlp），完成后重开本笔记即本地播放。',
+				);
+			},
+			() => {
+				new Notice('复制失败，请手动复制：' + cmd);
+			},
+		);
+	}
+
 	private openCurrentYouTube(): void {
 		if (!this.currentYouTube) {
 			return;
@@ -683,6 +720,10 @@ export class ListenView extends ItemView {
 		this.openYouTubeBtn?.toggleClass(
 			'is-hidden-ctrl',
 			Platform.isDesktopApp || this.currentYouTube === null,
+		);
+		this.copyYouTubeCmdBtn?.toggleClass(
+			'is-hidden-ctrl',
+			!Platform.isDesktopApp || this.currentYouTube === null,
 		);
 		const isAudio =
 			!!this.currentVideo && AUDIO_EXTENSIONS.has(this.currentVideo.extension.toLowerCase());
@@ -2119,6 +2160,7 @@ export class ListenView extends ItemView {
 		this.hideBtn = null;
 		this.saveLocalBtn = null;
 		this.openYouTubeBtn = null;
+		this.copyYouTubeCmdBtn = null;
 		this.modeListenBtn = null;
 		this.modeDictBtn = null;
 		this.playerPaneEl = null;
