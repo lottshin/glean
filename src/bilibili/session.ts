@@ -136,13 +136,13 @@ export function buildBilibiliSessionNote(input: {
 		`- UP 主：${input.owner || '未知'}`,
 		`- 链接：${input.url}`,
 		`- 字幕：[[${input.subtitlePath}]]`,
-		`- 画面：在线播放 · ${quality} · ${formatMediaSize(input.mediaSize)}`,
+		`- 画面：桌面端在线播放 · ${quality} · ${formatMediaSize(input.mediaSize)}`,
 		'',
 		'打开此笔记后，点右上角麦穗即可进入精听。',
 		'',
-		'画面走 B 站直链，不占 vault 空间。直链约两小时后失效，',
-		'届时回 B 站页面再点一次麦穗即可续上；想长期离线复习，',
-		'在精听工具栏选「存为本地副本」。',
+		'桌面端可以在线播放 B 站画面，直链约两小时后失效。',
+		'如果要在手机或 iPad 上继续精听，请先在桌面端工具栏点「存本地」，',
+		'再把视频随 vault 同步到移动设备。视频不会自动下载。',
 		'',
 	].join('\n');
 }

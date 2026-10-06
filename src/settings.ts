@@ -105,7 +105,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: 'Glean Capture',
-						desc: '采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+						desc: '采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。可从 Chrome Web Store 安装 Glean Capture；端口和 token 在下方接收端。',
 						aliases: ['youtube', '扩展'],
 					},
 				],
@@ -279,7 +279,7 @@ export class GleanSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '朗读来源',
-						desc: '查词和复习用的发音。有道需自备应用 ID 和密钥；社区源免 Key 但不稳。失败时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
+						desc: '查词和复习用的发音。有道需自备应用 ID 和密钥：ai.youdao.com 建应用、勾语音合成后填到下面两项。社区源免 Key 但不稳。失败时退回系统朗读。精听里有词级时间戳时仍优先播视频原声。',
 						aliases: ['TTS', '发音', '朗读', 'Wiktionary', '有道'],
 						control: {
 							type: 'dropdown',
@@ -550,7 +550,7 @@ export class GleanSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Glean Capture')
 			.setDesc(
-				'采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。尚未上架商店时，用灰度 zip 在 Chrome / Edge 里「加载已解压的扩展程序」。端口和 token 在下方接收端。',
+				'采集 YouTube / B 站的英文字幕并写入本库。其他语言会拒绝。可从 Chrome Web Store 安装 Glean Capture；端口和 token 在下方接收端。',
 			);
 
 		new Setting(containerEl)
@@ -663,7 +663,7 @@ export class GleanSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('朗读来源')
 			.setDesc(
-				'查词和复习用的发音。有道需自备 Key；社区源免 Key 但不稳。失败时退回系统朗读。',
+				'查词和复习用的发音。有道需自备 Key（ai.youdao.com 建应用，勾语音合成，把应用 ID 和密钥填到下面两项）。社区源免 Key 但不稳。失败时退回系统朗读。',
 			)
 			.addDropdown((dropdown) => {
 				dropdown

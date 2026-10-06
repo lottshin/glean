@@ -4,14 +4,31 @@
 
 你来是为了内容本身；语言是顺路捡起来的东西。
 
+<p align="center">
+  <img src="docs/assets/glean-listening.webp" alt="Glean 在 Obsidian 中进行视频精听" width="100%">
+</p>
+
+Glean 把听力、阅读、查词和复习放在同一个 vault 里：
+
+- 本地视频、YouTube 和 B 站英文字幕都能进入逐句精听工作流。
+- 离线词典负责查词，生词和复习进度保存为普通 Markdown。
+- 阅读模式可以点击查词、保存原句，并在侧边栏做整句解析。
+- 数据留在用户自己的 vault 中，不依赖 Glean 账号或远程数据库。
+
 > 当前为 `0.0.1` 开发预览版，最低 Obsidian `1.6.6`。浏览器采集只在桌面端进行；同步后的材料可在桌面、iPad 和手机学习。尚未提交社区插件市场。
 
 Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 
 - **Obsidian Web Clipper**（[官方](https://obsidian.md/clipper)）：把网页存进 vault，再用 Glean 阅读。
-- **Glean Capture**：从 YouTube 或 B 站同步**英文字幕**到本库。非英文轨会拒绝。B 站另带在线播放地址。尚未上架商店时，用灰度 zip 在 Chrome / Edge 加载已解压的扩展。
+- **Glean Capture**：从 YouTube 或 B 站同步**英文字幕**到本库。非英文轨会拒绝，B 站另带在线播放地址。可在 Chrome Web Store 搜索 `Glean Capture` 安装；开发构建见 [扩展文档](extension/README.md)。
 
 详情在 **设置 → Glean** 顶部；侧边栏麦穗菜单也有「浏览器扩展…」。
+
+## 界面
+
+| 阅读与整句解析 | 拼写复习 |
+| --- | --- |
+| ![Glean 阅读模式、查词弹层和整句解析](docs/assets/glean-reading.webp) | ![Glean 拼写复习](docs/assets/glean-review.webp) |
 
 ## 核心工作流
 
@@ -40,9 +57,11 @@ Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 2. 在 **设置 → Glean → 浏览器采集接收端** 确认端口并复制 token。
 3. 把端口和 token 填入扩展，打开带英文字幕的视频后同步。
 4. YouTube：打开生成的会话笔记，运行 **Glean: 精听当前 YouTube 笔记**。
-5. B 站：须先登录；只要跟读音对得上的英文字幕（人工轨或英文原声的 AI 轨）。机翻英文会拒绝。打开笔记即可精听；直链约两小时过期，回页面再同步，或点「存本地」。
+5. B 站：须先登录；只要跟读音对得上的英文字幕（人工轨或英文原声的 AI 轨）。机翻英文会拒绝。桌面端打开笔记即可在线播放；直链约两小时过期。要在手机或 iPad 上精听，请在桌面端点「存本地」，再同步视频文件。
 
-扩展不下载 YouTube 音视频。采集需要桌面 Obsidian 正在运行。移动端 YouTube 播放仍依赖网络和嵌入；若报 Error 153，字幕阅读、查词和生词库仍可用。
+扩展不下载 YouTube 音视频。采集需要桌面 Obsidian 正在运行。移动端 YouTube 播放会加载仓库 `docs/player/` 发布的静态 HTTPS 播放页，再由 YouTube 直接向设备提供视频。播放页只接收视频 ID 和播放控制，不上传字幕、Vault 文件或用户内容。
+
+主仓库的 GitHub Pages 工作流只发布 `docs/player/`，发布地址形如 `https://<账号>.github.io/<仓库>/player/`。如果仓库名称或账号改变，只需要同步修改 `src/media/youtube.ts` 里的 `YOUTUBE_PLAYER_BRIDGE_URL`。
 
 ### 阅读
 
@@ -79,16 +98,23 @@ Glean 本身不抓网页。第一次启用后会提示两个浏览器扩展：
 
 ### 朗读
 
-查词弹层、整句解析、生词库和复习页都可以点 **美 / 英** 听对应口音。
+查词弹层、整句解析、生词库和复习页都可以点喇叭听 **美 / 英**。口音由词卡上的按钮指定，设置里不再单独选口音。
 
 - **精听查词**：有词级时间戳时优先播视频里这一小段原声（此时美/英都会播同一段原声）。
 - **其他地方**：在 设置 → Glean → 朗读来源 里选：
-  - **系统朗读**：本机 Web Speech，离线可用，听感取决于系统语音包。
-  - **Free Dictionary**：社区聚合的词典音频（常有英美两条），免 Key，需联网。
-  - **Wiktionary**：维基词典志愿者录音，免 Key，需联网，覆盖不均。
-- 社区源找不到或下载失败时，自动退回系统朗读。设置里的「朗读口音」只在没有点美/英、或只剩一条音频时当默认偏好。
+  - **系统朗读**：本机语音，离线可用。没装英式语音包时，英音可能没有。
+  - **有道词典发音**：美音 `youmeimei`、英音 `youyingying`。要自己申请 Key（见下）。
+  - **Free Dictionary / Wiktionary**：免 Key 社区源，需联网；音频经常失效或限流，失败会退回系统朗读。
 
 不会自动读，避免查词和复习变成听写。
+
+申请有道（只需语音合成，不要去谈词典包年）：
+
+1. 打开 [ai.youdao.com](https://ai.youdao.com/) 注册并登录。
+2. 控制台创建应用，接入方式选 **API**，服务勾选 **语音合成**。
+3. 在应用详情复制 **应用 ID** 和 **应用密钥**。
+4. Glean 朗读来源选 **有道词典发音**，把两项填进设置。Key 只存在本机，不要发到聊天或公开仓库。
+5. 若提示还没绑定语音合成，回到有道控制台给这个应用补上 TTS。新账号一般有体验金，个人点单词足够用很久。
 
 ### 整句解析
 
@@ -158,7 +184,7 @@ glean-inflect-v1.tsv
 <vault>/.obsidian/plugins/glean/
 ```
 
-目录中应正好是 `main.js`、`manifest.json`、`styles.css`。然后打开 **设置 → 第三方插件**，关闭安全模式并启用 **Glean**。首次启用时会把离线词典解压到 `.obsidian/glean/dict/`，不联网；设置页应显示「已加载 Glean 离线词典」。同时会提示安装官方 **Obsidian Web Clipper** 和 **Glean YouTube Capture**，说明在 **设置 → Glean** 顶部。
+目录中应正好是 `main.js`、`manifest.json`、`styles.css`。然后打开 **设置 → 第三方插件**，关闭安全模式并启用 **Glean**。首次启用时会把离线词典解压到 `.obsidian/glean/dict/`，不联网；设置页应显示「已加载 Glean 离线词典」。同时会提示安装官方 **Obsidian Web Clipper** 和 **Glean Capture**，说明在 **设置 → Glean** 顶部。
 
 不要把 TypeScript 源码拷进插件目录。当前 `0.0.1` 仍是开发预览，未上社区市场。本地打包：
 
@@ -174,7 +200,8 @@ cd dist && zip -r glean-0.0.1.zip glean
 ```bash
 npm install
 npm test
-npm run build
+npm run typecheck
+npm run lint
 ```
 
 把仓库放到或软链接到：
@@ -185,13 +212,15 @@ npm run build
 
 确保目录中存在 `manifest.json`、`main.js` 和 `styles.css`，然后在 Obsidian 的第三方插件设置中启用 Glean。
 
-开发时运行：
+开发构建不嵌入词典，运行：
 
 ```bash
 npm run dev
 ```
 
 配合 Obsidian Hot Reload 插件和仓库根目录的 `.hotreload` 标记，可在源码变化后自动重载。
+
+生产构建会把离线词典嵌入 `main.js`。首次构建前请按 [词典文档](docs/dictionary.md) 下载 ECDICT 并生成 `data/generated/`，然后运行 `npm run build`。
 
 ## 验证
 
@@ -201,14 +230,20 @@ npm test
 npm run lint
 ```
 
+## 参与开发
+
+问题反馈和代码贡献都欢迎。开始前请阅读 [贡献指南](CONTRIBUTING.md)，并确保改动通过构建、测试和 lint。
+
+Glean 的生词、语境和复习进度以 Markdown 为权威数据。修改这些格式时，需要保持已有笔记可继续读取，并为迁移逻辑补充测试。
+
 ## 当前边界
 
 - YouTube 和 B 站都只采集**英文字幕**。非英文轨、以及 B 站从其他语言机翻出来的英文轨，都会拒绝。
 - 两边都不抓无字幕视频。
-- B 站画面默认在线播放，不占 vault 空间；直链约两小时后失效，回视频页面重新同步即可。想离线复习，在精听工具栏点「存本地」把 720P MP4 存进 vault。
+- B 站画面仅在桌面端默认在线播放，不占 vault 空间；直链约两小时后失效。想在移动端继续精听，在桌面端精听工具栏点「存本地」把 720P MP4 存进 vault，再同步视频文件。
 - B 站 CDN 要求请求同时带 `Referer` 和浏览器 `User-Agent`，且不能带 `Origin`，浏览器无法满足，所以画面由插件本地的采集接收端转发。接收端没运行时在线播放不可用，此时可改用「存本地」。
 - B 站被切成多段的老视频暂不支持在线精听，因为拼接 MP4 分片需要转封装。
-- YouTube 嵌入受视频作者设置和运行环境影响，可能出现 101 / 150 / 153 错误。
+- YouTube 播放仍受视频作者设置和运行环境影响，可能出现 101 / 150 错误。移动端播放页只托管播放器控制代码，不代理视频流。
 - 阅读模式目前作用于 Markdown 阅读视图；手动切回源码模式会自动退出 Glean 阅读。
 - 阅读嵌入内容时，语境归属当前打开的来源笔记；交互链接和代码不会被改造成可查词单词。
 - 逐词释义只覆盖离线词典收录的词，不做语法分析，也不解释固定搭配和习语。
@@ -218,4 +253,4 @@ npm run lint
 
 ## 许可
 
-Glean 使用 MIT License。ECDICT 的来源和许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+Glean 使用 [MIT License](LICENSE)。ECDICT、Lucide 等第三方内容的来源和许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。Glean Capture 的数据处理说明见 [隐私政策](docs/privacy.md)。
